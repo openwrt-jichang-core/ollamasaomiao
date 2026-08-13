@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  ollama-scanner:
+    build: .
+    container_name: ollama-scanner
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ollama-scanner-data:/data
+    environment:
+      - DATA_DIR=/data
+      # 强烈建议显式设置登录密码，否则每次重建容器（如果 /data 卷丢失）都会生成新的随机密码，
+      # 而且随机密码只会打印在容器启动日志里。
+      - ADMIN_PASSWORD=change-me-please
+      # 部署在有 HTTPS 的反向代理（如 Coolify 默认配置）之后保持 true；
+      # 仅在本机用纯 http 调试时才设为 false，否则登录 Cookie 无法被浏览器保存。
+      - COOKIE_SECURE=true
+    # 容器加固：禁止提权、去掉不必要的 Linux capabilities，降低被入侵后横向利用的空间
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  ollama-scanner-data:

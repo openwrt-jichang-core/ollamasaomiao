@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ollama 集群扫描台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="scanline-overlay" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="topbar__id">
+      <span class="eyebrow">OLLAMA / FLEET SCAN</span>
+      <h1>集群扫描台</h1>
+    </div>
+    <div class="topbar__actions">
+      <a href="globe.html" class="btn" title="切换到地球可视化指挥中心视图（新界面，实验性，随时可以切回经典视图）">🛰 指挥中心视图</a>
+      <button id="leaderboardToggle" class="btn btn--add">🏆 排行榜</button>
+      <button id="auditToggle" class="btn" title="查看最近的操作记录">📜 审计日志</button>
+      <button id="settingsToggle" class="btn" title="定时扫描与异常通知设置">⚙️ 设置</button>
+      <button id="themeToggle" class="btn theme-toggle" title="切换深色/浅色主题">🌗 主题</button>
+      <button id="logoutBtn" class="btn" title="退出登录">⎋ 退出</button>
+    </div>
+    <div class="radar" id="radar" aria-hidden="true">
+      <div class="radar__ring radar__ring--1"></div>
+      <div class="radar__ring radar__ring--2"></div>
+      <div class="radar__sweep" id="radarSweep"></div>
+      <div class="radar__core"></div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 主机管理面板 -->
+    <section class="panel panel--hosts" aria-labelledby="hostsTitle">
+      <h2 id="hostsTitle" class="panel__title">
+        <span class="panel__index">01</span> 主机地址
+      </h2>
+      <p class="panel__hint">添加任意数量的 Ollama 服务地址，例如 <code>http://192.168.1.10:11434</code>。星标收藏常用地址，关闭开关可临时排除某个地址（不删除，也不参与扫描）。点击 🏷 可以给主机打标签（比如机房/账号分组），下方输入框按标签筛选。</p>
+
+      <div class="host-filter">
+        <input type="text" id="hostTagFilter" class="host-form__input" placeholder="按标签筛选，例如：机房A（留空显示全部）" autocomplete="off" />
+        <button type="button" id="hostEnableAllBtn" class="btn">✅ 全部启用</button>
+        <button type="button" id="hostDisableAllBtn" class="btn">⛔ 全部禁用</button>
+        <button type="button" id="hostDeleteAllBtn" class="btn btn--danger" title="清空整个主机列表，不可撤销">🗑️ 一键删除全部主机</button>
+      </div>
+
+      <form id="hostForm" class="host-form">
+        <input
+          type="text"
+          id="hostInput"
+          class="host-form__input"
+          placeholder="http://host:11434 或 host:11434"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button type="submit" class="btn btn--add">+ 添加</button>
+        <button type="button" id="batchToggle" class="btn" title="从一段文本里批量识别多个地址">批量粘贴</button>
+      </form>
+
+      <div id="batchPanel" class="batch-panel" hidden>
+        <p class="panel__hint">粘贴含有多个地址的文本，会自动提取 <code>ip:port</code>（没写端口默认按 11434）。仅限你自己的内网/授权主机——非内网（非 10.x / 172.16-31.x / 192.168.x）地址会先弹出确认，不会静默加入。</p>
+        <textarea id="batchInput" class="batch-panel__textarea" rows="6" placeholder="把整段文本粘贴到这里…"></textarea>
+        <div class="batch-panel__actions">
+          <button type="button" id="batchParseBtn" class="btn btn--add">解析并添加</button>
+          <button type="button" id="batchCancelBtn" class="btn">取消</button>
+        </div>
+        <ul id="batchPreview" class="batch-panel__preview"></ul>
+      </div>
+
+      <ul id="hostList" class="host-list" aria-live="polite">
+        <!-- 动态渲染 -->
+      </ul>
+      <p id="hostEmpty" class="host-empty">还没有添加任何主机地址。</p>
+
+      <div id="hostFailedZone" class="host-failed-zone" hidden>
+        <div class="host-failed-zone__head">
+          <h3 class="host-failed-zone__title">⚠️ 失败区（最近一次扫描整链接不通，防止误连误加回来）</h3>
+          <button id="hostFailedEnableAllBtn" class="btn">✅ 全部启用</button>
+          <button id="hostFailedDisableAllBtn" class="btn">⛔ 全部禁用</button>
+          <button id="hostFailedDeleteAllBtn" class="btn btn--danger">🗑 一键删除失败链接</button>
+        </div>
+        <ul id="hostFailedList" class="host-list"></ul>
+      </div>
+    </section>
+
+    <!-- 控制与日志 -->
+    <section class="panel panel--console" aria-labelledby="consoleTitle">
+      <div class="console-head">
+        <h2 id="consoleTitle" class="panel__title">
+          <span class="panel__index">02</span> 扫描控制台
+        </h2>
+        <div class="controls">
+          <span id="statusPill" class="status-pill status-pill--idle">待机</span>
+          <button id="startBtn" class="btn btn--start">▶ 开始扫描</button>
+          <button id="stopBtn" class="btn btn--stop" disabled>■ 停止</button>
+        </div>
+      </div>
+
+      <div class="concurrency">
+        <label for="concurrencyRange" class="concurrency__label">
+          主机并发数 <span id="concurrencyValue" class="concurrency__value">3</span>
+          <span class="concurrency__hint">— 同时运行的主机数量，每个主机不会被重复运行</span>
+        </label>
+        <div class="concurrency__row">
+          <input type="range" id="concurrencyRange" min="1" max="100" value="3" />
+          <input type="number" id="concurrencyNumber" min="1" max="100" value="3" class="concurrency__number" />
+        </div>
+      </div>
+
+      <div class="concurrency">
+        <label for="modelConcurrencyRange" class="concurrency__label">
+          单主机内模型并发数 <span id="modelConcurrencyValue" class="concurrency__value">4</span>
+          <span class="concurrency__hint">— 同一主机内同时测试几个模型；目标主机若只有单卡/单模型槽位，调太高不一定更快，反而可能超时增多</span>
+        </label>
+        <div class="concurrency__row">
+          <input type="range" id="modelConcurrencyRange" min="1" max="20" value="4" />
+          <input type="number" id="modelConcurrencyNumber" min="1" max="20" value="4" class="concurrency__number" />
+        </div>
+      </div>
+
+      <div class="scan-toggle-grid">
+        <button type="button" class="scan-toggle" data-toggle="all" data-on="false">1 全部功能测试</button>
+        <button type="button" class="scan-toggle scan-toggle--locked" data-toggle="quick" data-on="true" title="点击查看为什么这个测试不能关闭">🔒 2 快速在线测试</button>
+        <button type="button" class="scan-toggle" data-toggle="core" data-on="false">3 核心测试</button>
+        <button type="button" class="scan-toggle" data-toggle="control" data-on="false">4 控制性测试</button>
+        <button type="button" class="scan-toggle" data-toggle="language" data-on="false">5 语言测试</button>
+        <button type="button" class="scan-toggle" data-toggle="headless" data-on="false">6 🌐无头浏览器</button>
+      </div>
+      <p class="panel__hint">绿色 = 本次扫描会跑，红色 = 跳过，点一下切换。这份选择跟"🛰 指挥中心视图"是共用的（同一份本地存储），两边切换互不影响彼此的选择。</p>
+
+      <div id="log" class="log" role="log" aria-live="polite"></div>
+    </section>
+
+    <!-- 结果面板 -->
+    <section class="panel panel--results" aria-labelledby="resultsTitle">
+      <div class="console-head">
+        <h2 id="resultsTitle" class="panel__title">
+          <span class="panel__index">03</span> 测试结果
+        </h2>
+        <button type="button" id="resultsCollapseBtn" class="btn" title="收起/展开">▾ 收起</button>
+      </div>
+      <div id="resultsBody" class="results-body">
+        <p class="results-empty">暂无结果，运行一次扫描后将显示各模型的测试通过情况。</p>
+      </div>
+    </section>
+
+    <!-- 排行榜（含左侧连通性侧边栏） -->
+    <section class="panel panel--leaderboard" id="leaderboardPanel" aria-labelledby="leaderboardTitle" hidden>
+      <div class="console-head">
+        <h2 id="leaderboardTitle" class="panel__title">
+          <span class="panel__index">04</span> 排行榜
+        </h2>
+        <button id="leaderboardRefresh" class="btn btn--add">↻ 刷新</button>
+        <button id="lbExportCsv" class="btn" title="导出为CSV，方便用Excel打开">⇩ 导出CSV</button>
+        <button id="lbExportMd" class="btn" title="导出为Markdown，方便发给别人看">⇩ 导出MD</button>
+      </div>
+      <p class="panel__hint">
+        只测一件事：<strong>这个模型现在能不能正常用</strong>——真的往它身上发一次生成请求（不是只 ping 一下主机端口），
+        能正常回应就算"可用"，报错/超时/连不上都算"不可用"，按响应耗时从快到慢排序。
+      </p>
+
+      <div class="leaderboard-layout">
+        <!-- 左侧：已添加链接 + 每个模型的连通性状态 -->
+        <aside class="lb-sidebar" aria-label="链接与模型连通性">
+          <h3 class="lb-sidebar__title">已添加链接</h3>
+          <ul id="lbHostList" class="lb-host-list"></ul>
+          <p id="lbHostEmpty" class="host-empty">还没有已添加的主机地址。</p>
+
+          <div id="lbModelPanel" class="lb-model-panel" hidden>
+            <div class="lb-model-panel__head">
+              <span id="lbModelHostLabel" class="lb-model-panel__host"></span>
+            </div>
+            <ul id="lbModelList" class="lb-model-list"></ul>
+            <p id="lbModelEmpty" class="host-empty">该主机尚无已发现的模型，先运行一次扫描。</p>
+          </div>
+        </aside>
+
+        <!-- 右侧：排行榜表格 -->
+        <div class="lb-main">
+          <div class="lb-section">
+            <h3 id="lbRankedTitle" class="lb-section__title">排行榜（可用）</h3>
+            <div id="lbRanked" class="lb-table">
+              <p class="results-empty">暂无排名数据。</p>
+            </div>
+          </div>
+          <div class="lb-section">
+            <h3 class="lb-section__title">不可用</h3>
+            <div id="lbFailed" class="lb-table">
+              <p class="results-empty">暂无记录。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 审计日志 -->
+    <section class="panel panel--audit" id="auditPanel" aria-labelledby="auditTitle" hidden>
+      <div class="console-head">
+        <h2 id="auditTitle" class="panel__title">
+          <span class="panel__index">05</span> 审计日志
+        </h2>
+        <button id="auditRefresh" class="btn btn--add">↻ 刷新</button>
+      </div>
+      <p class="panel__hint">记录谁（来源 IP）在什么时间新增/修改/删除了主机地址，以及登录成功/失败，最多保留最近 1000 条。</p>
+      <div id="auditList" class="audit-list"></div>
+      <p id="auditEmpty" class="host-empty">暂无操作记录。</p>
+    </section>
+
+    <!-- 设置：定时扫描 + 异常通知 -->
+    <section class="panel panel--settings" id="settingsPanel" aria-labelledby="settingsTitle" hidden>
+      <div class="console-head">
+        <h2 id="settingsTitle" class="panel__title">
+          <span class="panel__index">06</span> 设置
+        </h2>
+        <button id="settingsSaveBtn" class="btn btn--add">💾 保存设置</button>
+      </div>
+
+      <div class="settings-block">
+        <h3 class="settings-block__title">定时扫描</h3>
+        <p class="panel__hint">开启后，每天固定时间自动跑一次全量扫描（只扫描已启用的主机），跑完会自动和上一次结果做对比，异常会通过下方启用的渠道推送。</p>
+        <div class="settings-row">
+          <label class="settings-checkbox"><input type="checkbox" id="schedEnabled" /> 启用定时扫描</label>
+          <label class="settings-field">时间（每天）
+            <input type="time" id="schedTime" value="09:00" />
+          </label>
+          <label class="settings-field">主机并发数
+            <input type="number" id="schedConcurrency" min="1" max="100" value="3" />
+          </label>
+          <label class="settings-field">单主机模型并发数
+            <input type="number" id="schedModelConcurrency" min="1" max="20" value="4" />
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-block">
+        <h3 class="settings-block__title">地址自动发现（从网页提取）</h3>
+        <p class="panel__hint">
+          定期访问一个网页（自己的域名或局域网地址都行），从返回内容里提取 <code>ip:port</code>（没写端口默认按 11434），自动加进主机列表。
+          适合"内网地址会变、通过网站中转上报当前地址"这种场景。<br/>
+          <b>如果目标域名开了 Cloudflare 防护：</b>这里发的是普通 HTTP 请求，没法执行 JS，过不了 CF 的验证挑战页——这不是能靠改代码绕过的事。
+          建议去 Cloudflare 后台给本服务器出口IP或这个路径加一条"跳过安全检查"的规则，或者把这个页面放在一个不接入CF代理（DNS-only/灰色云朵）的子域名下。
+        </p>
+        <div class="settings-row">
+          <label class="settings-checkbox"><input type="checkbox" id="adEnabled" /> 启用地址自动发现</label>
+          <label class="settings-field" style="flex:2;">目标网址
+            <input type="text" id="adUrl" placeholder="https://briwanglu.com/status 或 http://192.168.113.9" />
+          </label>
+          <label class="settings-field">检查间隔（分钟）
+            <input type="number" id="adInterval" min="5" value="30" />
+          </label>
+        </div>
+        <div class="settings-row">
+          <label class="settings-field">分组（可选）
+            <input type="text" id="adGroup" placeholder="给自动发现的主机打个分组" />
+          </label>
+          <label class="settings-field" style="flex:2;">标签（可选，逗号分隔）
+            <input type="text" id="adTags" placeholder="例如：自动发现,家庭" />
+          </label>
+          <button type="button" id="adTestBtn" class="btn">🔍 立即测试</button>
+        </div>
+        <div id="adStatus" class="panel__hint" style="margin-top:4px;"></div>
+      </div>
+
+      <div class="settings-block">
+        <h3 class="settings-block__title">异常通知渠道</h3>
+        <p class="panel__hint">可以同时启用多个渠道；发现「之前正常、这次变差」的主机/模型时会全部推送一遍。保存后可以点“发送测试通知”验证配置。</p>
+
+        <div class="settings-channel">
+          <label class="settings-checkbox"><input type="checkbox" id="notifyWecomEnabled" /> 企业微信机器人 Webhook</label>
+          <input type="text" id="notifyWecomUrl" class="settings-input" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." />
+        </div>
+
+        <div class="settings-channel">
+          <label class="settings-checkbox"><input type="checkbox" id="notifyTelegramEnabled" /> Telegram Bot</label>
+          <input type="text" id="notifyTelegramToken" class="settings-input" placeholder="Bot Token（找 @BotFather 获取）" />
+          <input type="text" id="notifyTelegramChatId" class="settings-input" placeholder="Chat ID" />
+        </div>
+
+        <div class="settings-channel">
+          <label class="settings-checkbox"><input type="checkbox" id="notifyBarkEnabled" /> Bark (iOS)</label>
+          <input type="text" id="notifyBarkKey" class="settings-input" placeholder="Bark Key" />
+          <input type="text" id="notifyBarkServer" class="settings-input" placeholder="Bark 服务器地址（默认 https://api.day.app）" />
+        </div>
+
+        <div class="settings-channel">
+          <label class="settings-checkbox"><input type="checkbox" id="notifyEmailEnabled" /> 邮箱</label>
+          <input type="text" id="notifyEmailHost" class="settings-input" placeholder="SMTP 服务器，例如 smtp.qq.com" />
+          <input type="number" id="notifyEmailPort" class="settings-input" placeholder="端口，例如 587" />
+          <input type="text" id="notifyEmailUser" class="settings-input" placeholder="SMTP 用户名" />
+          <input type="password" id="notifyEmailPass" class="settings-input" placeholder="SMTP 密码/授权码" />
+          <input type="text" id="notifyEmailFrom" class="settings-input" placeholder="发件地址（留空则用用户名）" />
+          <input type="text" id="notifyEmailTo" class="settings-input" placeholder="收件地址" />
+          <label class="settings-checkbox"><input type="checkbox" id="notifyEmailTls" checked /> 使用 STARTTLS</label>
+        </div>
+
+        <button id="notifyTestBtn" class="btn">📨 发送测试通知</button>
+        <span id="settingsStatus" class="settings-status"></span>
+      </div>
+
+      <div class="settings-block">
+        <h3 class="settings-block__title">历史趋势数据</h3>
+        <p class="panel__hint">每次扫描完成后会自动追加一条汇总记录（不含主机地址等细节），用于下方的历史趋势图。为防止无限增长占满服务器磁盘，可设置保留天数和文件大小上限，超出的部分会自动从最旧的记录开始清理。</p>
+        <div class="settings-row">
+          <label class="settings-field">保留天数
+            <input type="number" id="histRetentionDays" min="1" value="180" />
+          </label>
+          <label class="settings-field">文件大小上限（MB）
+            <input type="number" id="histMaxSizeMb" min="1" value="50" />
+          </label>
+          <label class="settings-checkbox"><input type="checkbox" id="histAutoCleanup" checked /> 自动清理</label>
+        </div>
+        <div class="settings-row">
+          <span id="histStatsText" class="panel__hint"></span>
+          <button id="histDelete30Btn" class="btn">删除30天前</button>
+          <button id="histDelete60Btn" class="btn">删除60天前</button>
+          <button id="histDelete180Btn" class="btn">删除180天前</button>
+          <button id="histDelete365Btn" class="btn">删除一年前</button>
+          <button id="histDeleteAllBtn" class="btn btn--danger">全部删除</button>
+        </div>
+      </div>
+
+      <div class="settings-block">
+        <h3 class="settings-block__title">只读分享链接</h3>
+        <p class="panel__hint">开启后可以生成多个无需登录即可访问的只读链接（可各自命名、设置过期时间、单独吊销）。对方只能看到排行榜（主机地址会被替换成"主机1/主机2"这样的匿名编号），看不到真实主机地址、审计日志或任何管理功能。</p>
+        <div class="settings-row">
+          <label class="settings-checkbox"><input type="checkbox" id="shareEnabled" /> 启用分享链接功能</label>
+        </div>
+        <div class="settings-row">
+          <input type="text" id="shareTokenLabel" class="settings-input" placeholder="链接备注（例如：给老王看）" />
+          <label class="settings-field">有效期（天，留空=永久）
+            <input type="number" id="shareTokenExpireDays" min="1" placeholder="永久" />
+          </label>
+          <button id="shareCreateBtn" class="btn btn--add">➕ 生成新链接</button>
+        </div>
+        <div id="shareTokenList" class="share-token-list"></div>
+      </div>
+
+      <div class="settings-block">
+        <h3 class="settings-block__title">两步验证（TOTP）</h3>
+        <p class="panel__hint">开启后登录时除了密码，还需要输入 Google Authenticator / Authy 等 App 生成的6位验证码，防止密码泄露后被直接登录。</p>
+        <div id="totpStatusText" class="panel__hint">加载中…</div>
+        <div class="settings-row">
+          <button id="totpSetupBtn" class="btn">🔐 开启两步验证</button>
+          <button id="totpDisableBtn" class="btn btn--danger" style="display:none;">关闭两步验证</button>
+        </div>
+        <div id="totpSetupPanel" class="settings-row" style="display:none; flex-direction: column; align-items: flex-start; gap: 8px;">
+          <p class="panel__hint">在 Authenticator App 里手动添加密钥（没有二维码生成功能，需手动输入）：</p>
+          <input type="text" id="totpSecretText" class="settings-input" readonly />
+          <input type="text" id="totpConfirmCode" class="settings-input" placeholder="输入 App 里显示的6位验证码以确认开启" inputmode="numeric" />
+          <button id="totpConfirmBtn" class="btn btn--start">确认开启</button>
+        </div>
+      </div>
+
+      <div class="settings-block">
+        <h3 class="settings-block__title">Prometheus 指标</h3>
+        <p class="panel__hint">开启后可以用 Prometheus 抓取 <code>/api/metrics</code>（需要带上 token，作为 URL 参数 <code>?token=</code> 或 <code>Authorization: Bearer</code> 头），只暴露主机数量/排行榜聚合数字等指标，不含主机地址。</p>
+        <div class="settings-row">
+          <label class="settings-checkbox"><input type="checkbox" id="metricsEnabled" /> 启用 Prometheus 抓取端点</label>
+          <button id="metricsRegenerateBtn" class="btn">🔄 重新生成 token</button>
+        </div>
+        <input type="text" id="metricsUrlText" class="settings-input" readonly placeholder="启用后完整抓取地址会显示在这里" />
+      </div>
+
+      <div class="settings-block">
+        <h3 class="settings-block__title">自定义语言性测试用例</h3>
+        <p class="panel__hint">追加你自己的"语言性"测试题（纯文本规则判定，不执行任何代码，相对安全）。支持的规则：恰好N个汉字、某词出现次数、禁用词、编号列表条数、最大长度。会在下一次扫描/重测时生效。</p>
+        <div class="settings-row">
+          <input type="text" id="customTestName" class="settings-input" placeholder="用例名称" />
+        </div>
+        <textarea id="customTestPrompt" class="settings-input" rows="2" placeholder="发给模型的提示词（prompt）" style="width:100%; resize: vertical;"></textarea>
+        <div class="settings-row">
+          <select id="customRuleType">
+            <option value="exact_han_count">恰好N个汉字</option>
+            <option value="keyword_count">某词出现次数</option>
+            <option value="forbidden_words">禁用词（逗号分隔）</option>
+            <option value="numbered_list_count">编号列表恰好N条</option>
+            <option value="max_length">最大长度</option>
+          </select>
+          <input type="text" id="customRuleWord" class="settings-input" placeholder="词（仅“某词出现次数”用）" style="display:none;" />
+          <input type="text" id="customRuleWords" class="settings-input" placeholder="禁用词，逗号分隔" style="display:none;" />
+          <input type="number" id="customRuleN" class="settings-input" placeholder="数量N" style="width:100px;" />
+          <button id="customRuleAddBtn" class="btn">➕ 加一条规则</button>
+        </div>
+        <div id="customRuleList" class="panel__hint"></div>
+        <button id="customTestSaveBtn" class="btn btn--add">💾 保存用例</button>
+        <div id="customTestList" class="share-token-list"></div>
+      </div>
+
+      <div class="settings-block">
+        <h3 class="settings-block__title">自定义核心测试用例 ⚠️ 高风险</h3>
+        <p class="panel__hint">核心测试用例会把模型生成的代码拼上你写的 harness（断言脚本），在服务器沙箱子进程里<strong>真实执行</strong>。这等同于你自己在这台服务器上跑代码，请只在完全信任自己写的 harness 时使用。新增时需要重新输入登录密码确认，并会记录到审计日志。</p>
+        <div class="settings-row">
+          <input type="text" id="coreTestName" class="settings-input" placeholder="用例名称" />
+        </div>
+        <textarea id="coreTestPrompt" class="settings-input" rows="2" placeholder="发给模型的提示词（要求模型写代码）" style="width:100%; resize: vertical;"></textarea>
+        <textarea id="coreTestHarness" class="settings-input" rows="6" placeholder="Python 断言脚本(harness)，会拼在模型代码后面执行，最后打印 ALL_PASS 表示通过" style="width:100%; resize: vertical; font-family: var(--font-mono);"></textarea>
+        <div class="settings-row">
+          <input type="password" id="coreTestPassword" class="settings-input" placeholder="重新输入登录密码以确认" />
+          <button id="coreTestSaveBtn" class="btn btn--danger">⚠️ 确认保存并允许执行</button>
+        </div>
+        <div id="coreTestList" class="share-token-list"></div>
+      </div>
+
+      <div class="settings-block">
+        <h3 class="settings-block__title">审计日志</h3>
+        <p class="panel__hint">记录登录失败、设置变更、分享链接生成等管理操作。最多保留最近 1000 条。</p>
+        <button id="auditExportBtn" class="btn">⬇️ 导出为 CSV</button>
+      </div>
+    </section>
+
+    <!-- 归档 -->
+    <section class="panel" aria-labelledby="archiveTitle">
+      <h2 id="archiveTitle" class="panel__title"><span class="panel__index">07</span> 归档</h2>
+      <p class="panel__hint">界面记录变多会显得很乱？点"归档并开始新一轮"，会把当前的主机地址+排行榜+扫描结果整体存一份快照（按日期命名），然后清空当前工作区重新开始——数据不会丢，之后在下面能看，加新主机时也会自动查一遍这些归档防止重复添加。</p>
+      <div class="settings-row">
+        <input type="text" id="archiveLabelInput" class="settings-input" placeholder="归档备注（留空则用日期自动命名）" />
+        <button id="archiveCreateBtn" class="btn btn--danger">📦 归档并开始新一轮</button>
+      </div>
+      <div id="archiveList" class="share-token-list"></div>
+    </section>
+
+    <!-- 模型汇总 -->
+    <section class="panel" aria-labelledby="modelsAllTitle">
+      <div class="console-head">
+        <h2 id="modelsAllTitle" class="panel__title"><span class="panel__index">08</span> 模型汇总（含归档）</h2>
+        <button type="button" id="modelsAllCollapseBtn" class="btn" title="收起/展开">▾ 收起</button>
+      </div>
+      <div id="modelsAllBody">
+        <p class="panel__hint">不管是当前工作区还是躺在归档里的记录，扫描到过的 主机+模型 都汇总在这一个列表，方便"恢复测试"——有些机器可能只是被你归档整理掉了，其实还在线。默认只显示当前工作区的记录，归档里的记录折叠隐藏，需要时再展开看。</p>
+        <div class="settings-row">
+          <button id="modelsAllRefreshBtn" class="btn">🔄 刷新列表</button>
+          <button id="modelsAllQuickTestBtn" class="btn btn--add">⚡ 一键测试全部在线状态</button>
+          <button id="modelsAllHeadlessTestBtn" class="btn">🌐 一键测试无头浏览器支持（仅在线的）</button>
+        </div>
+        <div id="modelsAllList" class="lb-table"></div>
+        <button type="button" id="modelsAllShowArchivedBtn" class="btn" style="margin-top:8px;">📦 显示归档中的记录</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>阶段：发现模型 → 可用性测试 → 高级代码测试(核心/控制性/语言性)</span>
+    <span class="footer__note">参考系列标注为本地静态模糊匹配，非实时联网比对，也不代表验证过标签真实性——Ollama 模型标签可被任意自定义命名，请自行核实来源。</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

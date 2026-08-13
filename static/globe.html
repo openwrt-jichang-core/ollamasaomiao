@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>指挥中心 · Ollama 集群扫描台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="globe.css" />
+</head>
+<body>
+
+  <header class="hud-topbar">
+    <div class="hud-topbar__id">
+      <span class="hud-eyebrow">GLOBAL NODE TRACKING // LIVE</span>
+      <h1 class="hud-title">指挥中心</h1>
+    </div>
+    <div class="hud-topbar__actions">
+      <span id="hudLiveIndicator" class="hud-clock">🟢 实时</span>
+      <span id="hudClock" class="hud-clock">--:--:--</span>
+      <button id="hudSettingsBtn" class="hud-btn">⚙️ 设置 / 定时任务</button>
+      <a href="index.html" class="hud-btn hud-btn--accent">📋 经典视图</a>
+    </div>
+  </header>
+
+  <main class="hud-body">
+
+    <!-- 左侧栏：主机地址管理(含失败区) -->
+    <aside class="hud-rail hud-rail--left">
+      <section class="hud-panel">
+        <h2 class="hud-panel__title">添加主机地址</h2>
+        <form id="hudHostForm">
+          <input type="text" id="hudHostUrl" class="hud-input" placeholder="http://ip:11434" autocomplete="off" />
+          <div class="hud-row">
+            <input type="text" id="hudHostGroup" class="hud-input" placeholder="分组(可选)" />
+            <input type="text" id="hudHostTags" class="hud-input" placeholder="标签,逗号分隔(可选)" />
+          </div>
+          <div class="hud-row">
+            <button type="submit" class="hud-btn hud-btn--accent" style="flex:1;">➕ 添加</button>
+            <button type="button" id="hudBatchToggle" class="hud-btn" title="从一段文本里批量识别多个地址">📋 批量粘贴</button>
+          </div>
+        </form>
+
+        <div id="hudBatchPanel" class="hud-batch-panel" hidden>
+          <p class="hud-hint">粘贴含有多个地址的文本，会自动提取 ip:port（没写端口默认按 11434），分组/标签会用上面填的值。仅限你自己的内网/授权主机——非内网地址会先弹出确认。</p>
+          <textarea id="hudBatchInput" class="hud-batch-panel__textarea" rows="6" placeholder="把整段文本粘贴到这里…"></textarea>
+          <div class="hud-row" style="margin-top:8px;">
+            <button type="button" id="hudBatchParseBtn" class="hud-btn hud-btn--accent">解析并添加</button>
+            <button type="button" id="hudBatchCancelBtn" class="hud-btn">取消</button>
+          </div>
+          <ul id="hudBatchPreview" class="hud-batch-panel__preview"></ul>
+        </div>
+      </section>
+
+      <section class="hud-panel">
+        <div class="hud-row" style="justify-content: space-between; align-items:center;">
+          <h2 class="hud-panel__title" style="margin:0;">主机列表</h2>
+          <span id="hudHostCount" class="hud-hint" style="margin:0;"></span>
+        </div>
+        <div class="hud-row">
+          <button id="hudHostEnableAllBtn" class="hud-btn">✅ 全部启用</button>
+          <button id="hudHostDisableAllBtn" class="hud-btn">⛔ 全部禁用</button>
+        </div>
+        <div id="hudHostList" class="hud-list"></div>
+      </section>
+
+      <section class="hud-panel" id="hudFailedZone" hidden>
+        <h2 class="hud-panel__title" style="color: var(--hud-red);">⚠️ 失败区</h2>
+        <p class="hud-hint">最近一次扫描整链接不通，防止误连误加回来。</p>
+        <div class="hud-row">
+          <button id="hudFailedEnableAllBtn" class="hud-btn">✅ 全部启用</button>
+          <button id="hudFailedDisableAllBtn" class="hud-btn">⛔ 全部禁用</button>
+        </div>
+        <button id="hudFailedDeleteAllBtn" class="hud-btn hud-btn--danger" style="width:100%; margin-top:6px;">🗑 一键删除失败链接</button>
+        <div id="hudFailedList" class="hud-list" style="margin-top:8px;"></div>
+      </section>
+    </aside>
+
+    <!-- 中间：地球 -->
+    <section class="hud-globe-wrap">
+      <canvas id="globeCanvas"></canvas>
+      <div id="hudTooltip" class="hud-tooltip" hidden></div>
+      <div class="hud-legend">
+        <span><i class="hud-dot hud-dot--gold"></i> 公司锚点</span>
+        <span><i class="hud-dot hud-dot--ok"></i> 全部在线</span>
+        <span><i class="hud-dot hud-dot--mix"></i> 部分在线</span>
+        <span><i class="hud-dot hud-dot--down"></i> 全部离线</span>
+      </div>
+      <p class="hud-globe-hint">拖动旋转 · 悬停光点查看数量 · 点击光点查看详情并测试</p>
+    </section>
+
+    <!-- 右侧栏：扫描控制台 -->
+    <aside class="hud-rail hud-rail--right">
+      <section class="hud-panel">
+        <h2 class="hud-panel__title">扫描控制台</h2>
+        <p class="hud-hint">绿色=本次扫描会跑，红色=跳过。点一下切换，默认全部关闭。</p>
+        <div class="hud-toggle-grid">
+          <button class="hud-toggle" data-toggle="all" data-on="false">1 全部功能测试</button>
+          <button class="hud-toggle hud-toggle--locked" data-toggle="quick" data-on="true" title="点击查看为什么这个测试不能关闭">🔒 2 快速在线测试</button>
+          <button class="hud-toggle" data-toggle="core" data-on="false">3 核心测试</button>
+          <button class="hud-toggle" data-toggle="control" data-on="false">4 控制性测试</button>
+          <button class="hud-toggle" data-toggle="language" data-on="false">5 语言测试</button>
+          <button class="hud-toggle" data-toggle="headless" data-on="false">6 🌐无头浏览器</button>
+        </div>
+        <div class="hud-row">
+          <input type="number" id="hudConcurrency" class="hud-input" placeholder="主机并发" value="3" min="1" max="100" />
+          <input type="number" id="hudModelConcurrency" class="hud-input" placeholder="模型并发" value="4" min="1" max="20" />
+        </div>
+        <div class="hud-row">
+          <button id="hudStartBtn" class="hud-btn hud-btn--accent">▶ 开始扫描</button>
+          <button id="hudStopBtn" class="hud-btn hud-btn--danger" disabled>■ 停止</button>
+        </div>
+        <div id="hudScanStatus" class="hud-hint">待机</div>
+      </section>
+
+      <section class="hud-panel">
+        <h2 class="hud-panel__title">实时日志</h2>
+        <div id="hudLog" class="hud-log"></div>
+      </section>
+    </aside>
+
+  </main>
+
+  <!-- 下方：6个排行榜 -->
+  <div class="hud-lower">
+    <h2 class="hud-lower__title">排行榜</h2>
+    <div class="hud-lb-grid">
+      <div class="hud-lb-card">
+        <h3 class="hud-lb-card__title">🏆 深度测试排行榜（核心+控制性+语言性综合）</h3>
+        <div id="lbCardDeep" class="hud-lb-card__body"></div>
+      </div>
+      <div class="hud-lb-card">
+        <h3 class="hud-lb-card__title">⚡ 快速测试排行榜（仅检测在线/响应速度）</h3>
+        <div id="lbCardQuick" class="hud-lb-card__body"></div>
+      </div>
+      <div class="hud-lb-card">
+        <h3 class="hud-lb-card__title">🧩 核心测试排行榜</h3>
+        <div id="lbCardCore" class="hud-lb-card__body"></div>
+      </div>
+      <div class="hud-lb-card">
+        <h3 class="hud-lb-card__title">🕹 控制性排行榜（Agent 工具调用）</h3>
+        <div id="lbCardControl" class="hud-lb-card__body"></div>
+      </div>
+      <div class="hud-lb-card">
+        <h3 class="hud-lb-card__title">🗣 语言性排行榜</h3>
+        <div id="lbCardLanguage" class="hud-lb-card__body"></div>
+      </div>
+      <div class="hud-lb-card">
+        <h3 class="hud-lb-card__title">🌐 无头浏览器排行榜</h3>
+        <div id="lbCardHeadless" class="hud-lb-card__body"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 公司锚点 + 总览 + 未定位主机：放在排行榜下方，作为地球的补充信息 -->
+  <div class="hud-lower">
+    <h2 class="hud-lower__title">地球数据</h2>
+    <div class="hud-lb-grid">
+      <div class="hud-lb-card">
+        <h3 class="hud-lb-card__title">📍 公司锚点</h3>
+        <input type="text" id="companyName" class="hud-input" placeholder="名称，例如：总部" />
+        <input type="text" id="companyAddress" class="hud-input" placeholder="地址备注（仅展示，不参与定位）" />
+        <div class="hud-row">
+          <input type="number" id="companyLat" class="hud-input" placeholder="纬度 lat" step="0.0001" />
+          <input type="number" id="companyLon" class="hud-input" placeholder="经度 lon" step="0.0001" />
+        </div>
+        <button id="companySaveBtn" class="hud-btn hud-btn--accent">保存锚点</button>
+      </div>
+      <div class="hud-lb-card">
+        <h3 class="hud-lb-card__title">📊 总览</h3>
+        <div id="hudSummary" class="hud-summary">
+          <div class="hud-summary__row"><span>已定位国家/地区</span><b id="sumCountries">-</b></div>
+          <div class="hud-summary__row"><span>已定位节点</span><b id="sumPoints">-</b></div>
+          <div class="hud-summary__row"><span>内网/未定位节点</span><b id="sumUnlocated">-</b></div>
+          <div class="hud-summary__row"><span>模型总数</span><b id="sumModels">-</b></div>
+        </div>
+      </div>
+      <div class="hud-lb-card">
+        <h3 class="hud-lb-card__title">🏠 内网 / 未定位主机</h3>
+        <div id="hudUnlocatedList" class="hud-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 国家详情弹窗 -->
+  <div id="hudCountryModalOverlay" class="hud-modal-overlay" hidden>
+    <div class="hud-modal">
+      <button id="hudModalCloseBtn" class="hud-modal__close">✕</button>
+      <h2 id="hudDetailTitle" class="hud-panel__title">节点详情</h2>
+      <div class="hud-row">
+        <button id="hudDetailQuickBtn" class="hud-btn hud-btn--accent">⚡ 测在线</button>
+        <button id="hudDetailHeadlessBtn" class="hud-btn">🌐 测无头浏览器</button>
+      </div>
+      <div id="hudDetailModels" class="hud-list"></div>
+    </div>
+  </div>
+
+  <!-- 设置 / 定时任务弹窗 -->
+  <div id="hudSettingsModalOverlay" class="hud-modal-overlay" hidden>
+    <div class="hud-modal">
+      <button id="hudSettingsModalCloseBtn" class="hud-modal__close">✕</button>
+      <h2 class="hud-panel__title">定时扫描</h2>
+      <label class="settings-checkbox"><input type="checkbox" id="hudSchedEnabled" /> 启用定时扫描</label>
+      <div class="hud-row">
+        <input type="time" id="hudSchedTime" class="hud-input" />
+        <input type="number" id="hudSchedConcurrency" class="hud-input" placeholder="主机并发" min="1" max="100" />
+        <input type="number" id="hudSchedModelConcurrency" class="hud-input" placeholder="模型并发" min="1" max="20" />
+      </div>
+      <div class="hud-toggle-grid">
+        <button class="hud-toggle" data-sched-toggle="core" data-on="true">核心测试</button>
+        <button class="hud-toggle" data-sched-toggle="control" data-on="true">控制性测试</button>
+        <button class="hud-toggle" data-sched-toggle="language" data-on="true">语言测试</button>
+        <button class="hud-toggle" data-sched-toggle="headless" data-on="false">🌐无头浏览器</button>
+      </div>
+      <button id="hudSchedSaveBtn" class="hud-btn hud-btn--accent">💾 保存定时扫描设置</button>
+      <p class="hud-hint" style="margin-top:14px;">更完整的设置（通知渠道、历史数据、分享链接、两步验证等）请去经典视图的"⚙️ 设置"里配置，这里只放了指挥中心最常用的定时扫描项。</p>
+    </div>
+  </div>
+
+  <script src="globe.js"></script>
+</body>
+</html>

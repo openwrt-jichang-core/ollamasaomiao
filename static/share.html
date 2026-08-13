@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>只读排行榜 · Ollama 集群扫描台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app" style="max-width: 960px; margin: 0 auto;">
+    <header class="topbar">
+      <span class="eyebrow">OLLAMA / FLEET SCAN</span>
+      <h1 class="panel__title" style="margin: 8px 0 0;">只读排行榜</h1>
+      <p class="panel__hint">这是一个只读分享视图：只能看到排行榜结果，看不到真实主机地址或任何管理功能。</p>
+    </header>
+
+    <div class="lb-tabs" role="tablist">
+      <button type="button" class="lb-tab is-active" data-cat="core" role="tab">核心测试</button>
+      <button type="button" class="lb-tab" data-cat="control" role="tab">控制性 (Agent工具调用)</button>
+      <button type="button" class="lb-tab" data-cat="language" role="tab">语言性</button>
+    </div>
+
+    <section class="lb-section">
+      <h3 id="shareRankedTitle" class="lb-section__title">排行榜（全部通过）</h3>
+      <div id="shareRanked" class="lb-table">
+        <p class="results-empty">加载中…</p>
+      </div>
+    </section>
+    <section class="lb-section">
+      <h3 class="lb-section__title">失败记录（不参与排名）</h3>
+      <div id="shareFailed" class="lb-table">
+        <p class="results-empty"></p>
+      </div>
+    </section>
+  </main>
+
+  <script src="share.js"></script>
+</body>
+</html>

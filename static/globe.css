@@ -1,0 +1,482 @@
+/* ===== 指挥中心 design tokens =====
+   bg      #05080B  最底层背景
+   panel   #0A1116  面板表面
+   line    #16323A  边框/分隔线
+   cyan    #5FE1E8  主色调，光点/连接线/强调
+   cyan-dim#1E4A50  弱化的青色（背面线条、次要元素）
+   text    #C8ECEF  主要文字
+   dim     #5C7B82  次要文字
+   red     #FF4B4B  离线/失败
+   amber   #F2B84B  部分在线
+   gold    #E8C468  公司锚点
+*/
+
+:root {
+  --hud-bg: #05080B;
+  --hud-panel: #0A1116;
+  --hud-line: #16323A;
+  --hud-cyan: #5FE1E8;
+  --hud-cyan-dim: #1E4A50;
+  --hud-text: #C8ECEF;
+  --hud-dim: #5C7B82;
+  --hud-red: #FF4B4B;
+  --hud-green: #3EE08A;
+  --hud-green-dim: #1E5A3A;
+  --hud-amber: #F2B84B;
+  --hud-gold: #E8C468;
+  --hud-font: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --hud-land: rgba(90, 210, 160, 0.32);
+  --hud-land-line: rgba(140, 255, 210, 0.55);
+}
+
+* { box-sizing: border-box; }
+
+html {
+  background: var(--hud-bg);
+  color: var(--hud-text);
+  font-family: var(--hud-font);
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  max-width: 100vw;
+  overflow-x: hidden;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(95,225,232,0.06), transparent 60%),
+    var(--hud-bg);
+  color: var(--hud-text);
+  font-family: var(--hud-font);
+}
+
+/* ===== 顶栏（吸顶） ===== */
+.hud-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--hud-line);
+  background: rgba(5,8,11,0.92);
+  backdrop-filter: blur(6px);
+}
+.hud-eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  color: var(--hud-cyan);
+  opacity: 0.8;
+}
+.hud-title {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--hud-text);
+}
+.hud-topbar__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.hud-clock {
+  font-size: 13px;
+  color: var(--hud-cyan);
+  letter-spacing: 0.08em;
+  padding: 8px 10px;
+  border: 1px solid var(--hud-line);
+  border-radius: 4px;
+}
+
+.hud-btn {
+  font-family: var(--hud-font);
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid var(--hud-line);
+  border-radius: 4px;
+  background: var(--hud-panel);
+  color: var(--hud-text);
+  padding: 9px 13px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.hud-btn:hover { border-color: var(--hud-cyan-dim); }
+.hud-btn--accent { color: var(--hud-cyan); border-color: var(--hud-cyan-dim); }
+.hud-btn--accent:hover { box-shadow: 0 0 12px rgba(95,225,232,0.25); border-color: var(--hud-cyan); }
+.hud-btn--danger { color: var(--hud-red); border-color: rgba(255,75,75,0.35); }
+
+/* ===== 主体三栏布局(第一屏: 主机管理 / 地球 / 扫描控制台) =====
+   只有在屏幕足够宽*且*足够高时才用"卡死视口高度+内部滚动"的三栏布局，
+   否则一律走可以自然向下伸展的堆叠布局，避免主机地址/控制台被挤扁或被内部
+   滚动条藏起来。 */
+.hud-body {
+  height: calc(100vh - 65px);
+  min-height: 560px;
+  display: grid;
+  grid-template-columns: 320px 1fr 340px;
+  gap: 1px;
+  background: var(--hud-line);
+  overflow: hidden;
+}
+
+.hud-rail {
+  background: var(--hud-bg);
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ===== 下方: 排行榜 + 设置区域(正常页面滚动) ===== */
+.hud-lower {
+  padding: 20px;
+  max-width: 1800px;
+  margin: 0 auto;
+}
+.hud-lower__title {
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  color: var(--hud-cyan);
+  text-transform: uppercase;
+  margin: 28px 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hud-line);
+}
+.hud-lb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 14px;
+}
+.hud-lb-card {
+  border: 1px solid var(--hud-line);
+  border-radius: 6px;
+  background: var(--hud-panel);
+  padding: 12px;
+}
+.hud-lb-card__title { margin: 0 0 8px; font-size: 12.5px; color: var(--hud-cyan); letter-spacing: 0.06em; }
+.hud-lb-card__body { max-height: 320px; overflow-y: auto; }
+
+.hud-panel {
+  border: 1px solid var(--hud-line);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--hud-panel);
+}
+.hud-panel__title {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  color: var(--hud-cyan);
+  text-transform: uppercase;
+}
+.hud-hint { font-size: 11.5px; color: var(--hud-dim); line-height: 1.5; margin: 0 0 8px; }
+
+.hud-input {
+  width: 100%;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-line);
+  border-radius: 4px;
+  color: var(--hud-text);
+  font-family: var(--hud-font);
+  font-size: 12.5px;
+  padding: 7px 9px;
+  margin-bottom: 8px;
+}
+.hud-input:focus { outline: none; border-color: var(--hud-cyan-dim); }
+.hud-row { display: flex; gap: 8px; }
+.hud-row .hud-input { flex: 1; }
+
+.hud-summary__row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--hud-line);
+  color: var(--hud-dim);
+}
+.hud-summary__row:last-child { border-bottom: none; }
+.hud-summary__row b { color: var(--hud-cyan); font-size: 13px; }
+
+.hud-list { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; }
+.hud-list-item {
+  font-size: 11.5px;
+  border: 1px solid var(--hud-line);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--hud-text);
+}
+.hud-list-item .hud-list-item__sub { color: var(--hud-dim); font-size: 10.5px; margin-top: 2px; }
+.hud-list-empty { font-size: 11.5px; color: var(--hud-dim); }
+
+/* ===== 地球画布区 ===== */
+.hud-globe-wrap {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#globeCanvas { display: block; width: 100%; height: 100%; cursor: grab; }
+#globeCanvas:active { cursor: grabbing; }
+
+.hud-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(10,17,22,0.92);
+  border: 1px solid var(--hud-cyan-dim);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: var(--hud-text);
+  white-space: normal;
+  max-width: 240px;
+  z-index: 5;
+}
+.hud-tooltip b { color: var(--hud-cyan); }
+
+.hud-legend {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 14px;
+  font-size: 10.5px;
+  color: var(--hud-dim);
+  background: rgba(10,17,22,0.7);
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--hud-line);
+}
+.hud-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.hud-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.hud-dot--gold { background: var(--hud-gold); box-shadow: 0 0 6px var(--hud-gold); }
+.hud-dot--ok { background: var(--hud-cyan); box-shadow: 0 0 6px var(--hud-cyan); }
+.hud-dot--mix { background: var(--hud-amber); }
+.hud-dot--down { background: var(--hud-red); }
+
+.hud-globe-hint {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--hud-dim);
+}
+
+/* ===== 右侧详情面板 ===== */
+.hud-detail-body { display: flex; flex-direction: column; gap: 10px; }
+
+.hud-model-row {
+  border: 1px solid var(--hud-line);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 11.5px;
+}
+.hud-model-row__name { color: var(--hud-text); font-weight: 600; }
+.hud-model-row__host { color: var(--hud-dim); font-size: 10.5px; margin: 2px 0 4px; }
+.hud-model-row__stat { color: var(--hud-cyan); font-size: 11px; }
+
+/* ===== 6种测试类型开关(绿=开 红=关) ===== */
+.hud-toggle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.hud-toggle {
+  font-family: var(--hud-font);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid;
+  padding: 8px 6px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+  line-height: 1.3;
+}
+.hud-toggle[data-on="true"] {
+  background: rgba(62,224,138,0.16);
+  border-color: var(--hud-green);
+  color: var(--hud-green);
+  box-shadow: 0 0 8px rgba(62,224,138,0.18) inset;
+}
+.hud-toggle[data-on="false"] {
+  background: rgba(255,75,75,0.08);
+  border-color: rgba(255,75,75,0.4);
+  color: var(--hud-red);
+  opacity: 0.75;
+}
+.hud-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+.hud-toggle--locked {
+  cursor: help;
+  border-style: dashed;
+}
+
+/* ===== 排行榜每一行旁边的 6 个测试按钮 ===== */
+.hud-row-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.hud-row-actions button {
+  font-family: var(--hud-font);
+  font-size: 10px;
+  border: 1px solid var(--hud-line);
+  border-radius: 3px;
+  background: var(--hud-bg);
+  color: var(--hud-dim);
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.hud-row-actions button:hover { border-color: var(--hud-cyan-dim); color: var(--hud-cyan); }
+.hud-row-result { font-size: 10.5px; color: var(--hud-cyan); margin-top: 4px; min-height: 14px; }
+
+/* ===== 批量粘贴面板 ===== */
+.hud-batch-panel {
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-line);
+  border-radius: 8px;
+  padding: 10px;
+  margin-top: 8px;
+  margin-bottom: 12px;
+}
+.hud-batch-panel__textarea {
+  width: 100%;
+  background: var(--hud-panel);
+  border: 1px solid var(--hud-line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--hud-text);
+  font-family: var(--hud-font);
+  font-size: 12.5px;
+  outline: none;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.hud-batch-panel__textarea:focus {
+  border-color: var(--hud-cyan-dim);
+}
+.hud-batch-panel__preview {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--hud-font);
+  font-size: 11.5px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.hud-batch-panel__preview li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--hud-text);
+}
+.hud-batch-panel__preview .tag-private { color: var(--hud-green); }
+.hud-batch-panel__preview .tag-public { color: var(--hud-amber); }
+
+/* ===== 国家详情弹窗 ===== */
+.hud-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2,4,6,0.7);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.hud-modal-overlay[hidden] {
+  display: none;
+}
+.hud-modal {
+  width: min(560px, 92vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--hud-panel);
+  border: 1px solid var(--hud-cyan-dim);
+  border-radius: 8px;
+  padding: 18px;
+}
+.hud-modal__close {
+  float: right;
+  background: none;
+  border: none;
+  color: var(--hud-dim);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* ===== 响应式 =====
+   平板（含横屏平板/小尺寸笔记本，<=1300px）和手机一律使用可自然向下伸展的
+   堆叠布局：主机地址 → 地球 → 扫描控制台，逐个占满整行宽度，不再挤进固定
+   高度的侧栏里滚动，也不会被地球区域盖住或压扁。 */
+@media (max-width: 1300px) {
+  .hud-body {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .hud-rail {
+    max-height: none;
+    overflow-y: visible;
+  }
+  .hud-rail--left,
+  .hud-rail--right {
+    padding: 16px;
+  }
+  .hud-globe-wrap {
+    min-height: 380px;
+    height: 46vh;
+    max-height: 520px;
+  }
+  .hud-lb-grid { grid-template-columns: 1fr; }
+}
+
+/* 手机：进一步收紧地球高度、内边距与开关网格，保证主机地址/控制台一直是
+   全宽、完整展示，不被压缩。 */
+@media (max-width: 640px) {
+  .hud-topbar { padding: 10px 12px; }
+  .hud-title { font-size: 17px; }
+  .hud-eyebrow { font-size: 9.5px; }
+  .hud-rail--left,
+  .hud-rail--right {
+    padding: 12px;
+  }
+  .hud-globe-wrap {
+    min-height: 280px;
+    height: 34vh;
+    max-height: 360px;
+  }
+  .hud-toggle-grid { grid-template-columns: 1fr 1fr; gap: 5px; }
+  .hud-toggle { font-size: 10px; padding: 9px 5px; }
+  .hud-legend { flex-wrap: wrap; gap: 8px; left: 8px; right: 8px; bottom: 8px; }
+  .hud-globe-hint { display: none; }
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--hud-line); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+.hud-log {
+  height: 160px;
+  overflow-y: auto;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-line);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 10.5px;
+  color: var(--hud-dim);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}

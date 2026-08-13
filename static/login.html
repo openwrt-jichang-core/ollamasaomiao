@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>登录 · Ollama 集群扫描台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body class="login-body">
+  <div class="scanline-overlay" aria-hidden="true"></div>
+
+  <main class="login-wrap">
+    <form id="loginForm" class="login-card" autocomplete="off">
+      <span class="eyebrow">OLLAMA / FLEET SCAN</span>
+      <h1 class="login-title">访问受限</h1>
+      <p class="login-hint">该控制台需要密码才能进入，请输入访问密码。</p>
+
+      <input
+        type="password"
+        id="loginPassword"
+        class="login-input"
+        placeholder="访问密码"
+        autocomplete="current-password"
+        autofocus
+      />
+
+      <input
+        type="text"
+        id="loginTotp"
+        class="login-input"
+        placeholder="两步验证码（6位数字）"
+        autocomplete="one-time-code"
+        inputmode="numeric"
+        style="display:none;"
+      />
+
+      <button type="submit" id="loginSubmit" class="btn btn--start login-submit">登录</button>
+
+      <p id="loginError" class="login-error" role="alert" aria-live="assertive"></p>
+    </form>
+  </main>
+
+  <script src="login.js"></script>
+</body>
+</html>
