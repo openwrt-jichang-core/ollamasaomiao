@@ -622,7 +622,7 @@ async function startScan() {
   logEl.innerHTML = '';
   lastSeq = 0;
   setRunningUI(true);
-  poll();
+  // 不再手动 poll()：扫描线程一开始写日志，WS 广播就会自动把它们推过来。
 }
 
 async function stopScan() {
@@ -650,32 +650,71 @@ function setStatusPill(kind, text) {
   statusPill.textContent = text;
 }
 
-// ---------- Polling ----------
+// ---------- WebSocket 日志/状态流（取代原来 1.2 秒一次的轮询） ----------
+// 设计：单一长连接持续推日志；连接断开时指数退避重连；重连成功后依赖后端
+// 主动下发的 log_backfill 补齐断线期间错过的日志，不需要客户端自己算 since。
+// 如果 WS 连接一直起不来（比如反代不支持 ws 升级），退化为一次性 HTTP 兜底，
+// 保证至少能看到当前状态，而不是整个日志面板死掉。
 
-async function poll() {
-  clearTimeout(pollTimer);
-  try {
-    const res = await apiFetch(`/api/scan/status?since=${lastSeq}`);
-    const data = await res.json();
+let ws = null;
+let wsReconnectDelay = 1000;
+const WS_RECONNECT_MAX_DELAY = 10000;
 
-    appendLogs(data.logs);
-    setRunningUI(data.running);
+function wsConnect() {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${window.location.host}/ws/logs`);
 
-    if (!data.running) {
-      if (data.results) {
-        setStatusPill('done', '已完成');
-        renderResults(data.results);
-      } else if (wasRunning) {
-        setStatusPill('idle', '待机');
-      }
+  ws.addEventListener('open', () => {
+    wsReconnectDelay = 1000; // 连上了就重置退避时间
+  });
+
+  ws.addEventListener('message', (ev) => {
+    let msg;
+    try {
+      msg = JSON.parse(ev.data);
+    } catch (e) {
+      return;
     }
-    wasRunning = data.running;
+    if (msg.type === 'log') {
+      appendLogs([msg.entry]);
+    } else if (msg.type === 'log_backfill') {
+      appendLogs(msg.entries);
+    } else if (msg.type === 'status') {
+      setRunningUI(msg.running);
+      if (!msg.running) {
+        if (msg.has_results) {
+          // 结果本体没有随每条状态消息广播（避免大 JSON 刷屏），
+          // 扫描结束这一刻单独拉一次就够了，不是轮询。
+          fetchFinalResults();
+        } else if (wasRunning) {
+          setStatusPill('idle', '待机');
+        }
+      }
+      wasRunning = msg.running;
+    }
+  });
 
-    if (data.running) {
-      pollTimer = setTimeout(poll, 1200);
+  ws.addEventListener('close', () => {
+    if (document.getElementById('logoutBtn') == null) return; // 页面已经跳转走了（比如登出），不用重连
+    setTimeout(wsConnect, wsReconnectDelay);
+    wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_RECONNECT_MAX_DELAY);
+  });
+
+  ws.addEventListener('error', () => {
+    ws.close();
+  });
+}
+
+async function fetchFinalResults() {
+  try {
+    const res = await apiFetch('/api/scan/status?since=0');
+    const data = await res.json();
+    if (data.results) {
+      setStatusPill('done', '已完成');
+      renderResults(data.results);
     }
   } catch (e) {
-    pollTimer = setTimeout(poll, 2000);
+    // ignore，下次状态变化或手动刷新会再拉一次
   }
 }
 
@@ -1715,15 +1754,17 @@ async function init() {
   refreshArchives();
   refreshModelsAll();
   try {
+    // 一次性拉取当前状态用于首屏渲染（不是轮询循环，只在页面加载这一刻调用一次）；
+    // 之后的所有增量日志/状态变化都交给 WS。
     const res = await apiFetch('/api/scan/status?since=0');
     const data = await res.json();
     appendLogs(data.logs);
     setRunningUI(data.running);
     if (data.results) renderResults(data.results);
-    if (data.running) poll();
   } catch (e) {
     // backend not reachable yet
   }
+  wsConnect();
 }
 
 init();

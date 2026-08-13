@@ -969,6 +969,12 @@ async function loadGlobeData() {
       countryClusters = buildCountryClusters(globeData.points);
       renderSummary();
       renderUnlocatedList();
+      // Cesium 视图当前可见时，数据轮询刷新也要同步过去；
+      // 不可见（未初始化/在用经典 2D 视图）时跳过，避免无谓的实体更新开销。
+      const cesiumEl = document.getElementById('cesiumGlobe');
+      if (cesiumEl && !cesiumEl.hidden && typeof renderCesiumClusters === 'function') {
+        renderCesiumClusters(countryClusters);
+      }
     } catch (e) {
       console.error('渲染地球数据失败', e);
     }

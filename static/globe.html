@@ -8,6 +8,9 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="globe.css" />
+<!-- 离线 Cesium 引擎本体：需按 README「离线瓦片获取方式」把文件放到这个路径，
+     这里不引用任何 CDN（unpkg/cesium.com 等），保证纯离线可用。 -->
+<link rel="stylesheet" href="vendor/cesium/Widgets/widgets.css" />
 </head>
 <body>
 
@@ -80,6 +83,8 @@
     <!-- 中间：地球 -->
     <section class="hud-globe-wrap">
       <canvas id="globeCanvas"></canvas>
+      <div id="cesiumGlobe" class="cesium-globe-container" hidden></div>
+      <button id="cesiumToggleBtn" class="hud-btn hud-globe-toggle" title="切换到离线 3D 地球（需先按 README 说明放好 Cesium 引擎和瓦片）">🛰 Cesium 3D 视图</button>
       <div id="hudTooltip" class="hud-tooltip" hidden></div>
       <div class="hud-legend">
         <span><i class="hud-dot hud-dot--gold"></i> 公司锚点</span>
@@ -218,6 +223,38 @@
     </div>
   </div>
 
+  <script src="vendor/cesium/Cesium.js"></script>
+  <script src="cesium-globe.js"></script>
   <script src="globe.js"></script>
+  <script>
+    // 视图切换：不改动原有 globe.js 的任何逻辑，只是显隐两套 DOM，
+    // 首次切到 Cesium 视图时才真正初始化引擎（避免没用到时也占用 GPU/内存）。
+    document.getElementById('cesiumToggleBtn')?.addEventListener('click', () => {
+      const canvas = document.getElementById('globeCanvas');
+      const cesiumEl = document.getElementById('cesiumGlobe');
+      const btn = document.getElementById('cesiumToggleBtn');
+      const showingCesium = !cesiumEl.hidden;
+      if (showingCesium) {
+        cesiumEl.hidden = true;
+        canvas.hidden = false;
+        btn.textContent = '🛰 Cesium 3D 视图';
+      } else {
+        canvas.hidden = true;
+        cesiumEl.hidden = false;
+        btn.textContent = '🗺 经典 2D 视图';
+        try {
+          initCesiumGlobe('cesiumGlobe');
+          if (typeof countryClusters !== 'undefined') {
+            renderCesiumClusters(countryClusters);
+          }
+        } catch (e) {
+          alert('Cesium 引擎或离线瓦片没有就位，请先按 README 里「离线瓦片获取方式」放好文件。\n\n' + e.message);
+          cesiumEl.hidden = true;
+          canvas.hidden = false;
+          btn.textContent = '🛰 Cesium 3D 视图';
+        }
+      }
+    });
+  </script>
 </body>
 </html>
