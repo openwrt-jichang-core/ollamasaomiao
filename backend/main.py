@@ -1,5 +1,6 @@
 import ipaddress
 import json
+import logging
 import os
 import re
 import secrets
@@ -12,13 +13,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
+import aiofiles
 import requests
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from auth import AuthManager
+from ws_manager import capture_running_loop, manager as ws_manager, push_from_thread
 from scanner import (
     ScanState,
     quick_test,
@@ -144,6 +147,7 @@ COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() != "false"
 app = FastAPI(title="Ollama Cluster Scanner")
 SCAN_LOG_FILE = DATA_DIR / "scan_log.jsonl"
 state = ScanState(log_file=SCAN_LOG_FILE)  # 全局唯一主状态，日志落盘，重启/刷新不丢
+state.set_broadcast_callback(push_from_thread)  # 扫描线程产生的每条日志/状态变化都经这里推给 WS 客户端
 auth_mgr = AuthManager(DATA_DIR)
 
 # ---------------------------------------------------------------------------
@@ -205,6 +209,13 @@ async def security_headers_middleware(request: Request, call_next):
     return response
 
 
+@app.on_event("startup")
+async def _capture_loop_on_startup():
+    # 扫描跑在普通 threading 线程里，要往 WS 广播必须先记住这个主事件循环，
+    # 否则 asyncio.run_coroutine_threadsafe 无处可投递。
+    capture_running_loop()
+
+
 # ---------------------------------------------------------------------------
 # 鉴权：密码登录 + 会话 Cookie + 失败次数指数退避锁定
 # ---------------------------------------------------------------------------
@@ -215,6 +226,42 @@ def require_auth(request: Request):
     if not auth_mgr.validate_session(token):
         raise HTTPException(status_code=401, detail="未登录或会话已过期，请重新登录")
     return True
+
+
+# ---------------------------------------------------------------------------
+# WebSocket：扫描日志/状态实时广播，取代前端原来每 1.2 秒一次的轮询。
+# WS 握手阶段拿不到 Depends(require_auth) 这套 HTTP 中间件机制，
+# 必须手动从 ws.cookies 里取 session token 校验，未登录直接拒绝并关闭。
+# ---------------------------------------------------------------------------
+
+
+@app.websocket("/ws/logs")
+async def ws_logs(ws: WebSocket):
+    token = ws.cookies.get(SESSION_COOKIE)
+    if not auth_mgr.validate_session(token):
+        await ws.close(code=4401)
+        return
+
+    await ws_manager.connect(ws)
+    try:
+        # 连接建立时先把当前已有的日志/运行状态整体推一遍，
+        # 这样客户端不需要额外再发一次 HTTP 请求去"补齐历史"，WS 单通道就够。
+        await ws.send_json({"type": "log_backfill", "entries": state.get_logs_since(0)})
+        await ws.send_json({
+            "type": "status",
+            "running": state.running,
+            "has_results": state.results is not None,
+        })
+        while True:
+            # 不需要客户端真的发消息，这里只是用来感知"对端主动关闭"这个事件；
+            # 浏览器标签页关闭 / 弱网断线时，这行会抛出 WebSocketDisconnect。
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logging.getLogger("ws_manager").exception("ws_logs 连接异常")
+    finally:
+        await ws_manager.disconnect(ws)
 
 
 class LoginIn(BaseModel):
@@ -601,14 +648,38 @@ class ArchiveCreateIn(BaseModel):
     label: str = ""
 
 
+# create_archive() 生成的 id 固定是 now.strftime("%Y%m%d_%H%M%S")，
+# 这里锁死同样的格式作为白名单：请求路径里的 archive_id 不符合这个形状，
+# 直接 400 拒绝，不进入任何查找/读盘逻辑。
+# 现有实现里 archive_id 只是拿去跟内存里的 JSON 记录做字符串相等比较，
+# 从未被拼接进文件系统路径，所以本身不构成路径穿越——这条正则是纵深防御，
+# 防止未来有人改成 DATA_DIR / f"{archive_id}.json" 这种写法时才追悔莫及。
+ARCHIVE_ID_RE = re.compile(r"^\d{8}_\d{6}$")
+
+
+async def _load_json_file_async(path: Path, default):
+    """归档/历史这类可能较大且被频繁访问的文件用异步 I/O 读，
+    避免单进程模型下阻塞 FastAPI 的主事件循环（会连带卡住 WS 广播和其他请求）。
+    小文件（如 hosts.json）没有这个必要，维持同步读即可。"""
+    if not path.exists():
+        return default
+    async with aiofiles.open(path, "r", encoding="utf-8") as f:
+        raw = await f.read()
+    return json.loads(raw) if raw.strip() else default
+
+
 @app.get("/api/archives")
-def list_archives(auth=Depends(require_auth)):
-    return [_archive_summary(a) for a in sorted(_load_archives(), key=lambda a: a["created_at"], reverse=True)]
+async def list_archives(auth=Depends(require_auth)):
+    archives = await _load_json_file_async(ARCHIVES_FILE, [])
+    return [_archive_summary(a) for a in sorted(archives, key=lambda a: a["created_at"], reverse=True)]
 
 
 @app.get("/api/archives/{archive_id}")
-def get_archive(archive_id: str, auth=Depends(require_auth)):
-    for arc in _load_archives():
+async def get_archive(archive_id: str, auth=Depends(require_auth)):
+    if not ARCHIVE_ID_RE.match(archive_id):
+        raise HTTPException(status_code=400, detail="非法的归档 ID")
+    archives = await _load_json_file_async(ARCHIVES_FILE, [])
+    for arc in archives:
         if arc["id"] == archive_id:
             return arc
     raise HTTPException(status_code=404, detail="未找到该归档")
