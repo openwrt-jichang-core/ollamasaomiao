@@ -893,8 +893,25 @@ class ScanState:
         self.active_hosts = set()   # 正在运行中的主机, 防止同一主机被重复并发运行
         self.active_hosts_lock = threading.Lock()
         self.log_file = log_file
+        # WS 广播钩子：main.py 启动时通过 set_broadcast_callback() 注入。
+        # 扫描逻辑本身跑在普通线程里，对 asyncio 一无所知，也不应该知道——
+        # 这里只是把事件同步地丢给回调，回调内部（main.py）负责跨线程桥接到事件循环。
+        # 回调必须是非阻塞的轻量函数，绝不能在这里做网络 I/O，否则会拖慢扫描本身。
+        self._broadcast_cb = None
         if self.log_file is not None:
             self._load_persisted_logs()
+
+    def set_broadcast_callback(self, cb):
+        self._broadcast_cb = cb
+
+    def _broadcast(self, payload):
+        if self._broadcast_cb is None:
+            return
+        try:
+            self._broadcast_cb(payload)
+        except Exception:
+            # 广播失败（比如事件循环还没起来）绝不能影响扫描主流程
+            pass
 
     def _load_persisted_logs(self):
         try:
@@ -945,6 +962,7 @@ class ScanState:
             }
             self.logs.append(entry)
             self._persist_log_line(entry)
+        self._broadcast({"type": "log", "entry": entry})
 
     def get_logs_since(self, since):
         with self.lock:
@@ -1499,11 +1517,16 @@ def run_scan(hosts, state: ScanState, concurrency=3, model_concurrency=4):
         state.log(f"扫描过程中发生异常: {e}")
     finally:
         state.running = False
+        # 扫描线程收尾时显式广播一次终态（running=False + 是否有结果），
+        # 前端靠这条消息知道"扫描真的结束了"，不需要再轮询确认。
+        state._broadcast({"type": "status", "running": False, "has_results": state.results is not None})
 
 
 def start_scan_thread(hosts, state: ScanState, concurrency=3, model_concurrency=4):
     if state.running:
         return False
+    state.running = True
+    state._broadcast({"type": "status", "running": True, "has_results": False})
     t = threading.Thread(target=run_scan, args=(hosts, state, concurrency, model_concurrency), daemon=True)
     state.thread = t
     t.start()
