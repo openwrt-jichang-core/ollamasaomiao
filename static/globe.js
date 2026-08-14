@@ -698,15 +698,17 @@ function project(lat, lon) {
 }
 
 function drawSphereBase() {
+  // 浅色玻璃拟态主题下的地球本体：淡蓝紫渐变球体，配合半透明白高光，
+  // 呼应页面背景的蓝紫粉渐变，不再是深色 HUD 那套暗色调。
   const grad = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.3, R * 0.1, cx, cy, R);
-  grad.addColorStop(0, '#0E2530');
-  grad.addColorStop(0.7, '#081419');
-  grad.addColorStop(1, '#050A0C');
+  grad.addColorStop(0, '#EAF0FF');
+  grad.addColorStop(0.55, '#C9D6FA');
+  grad.addColorStop(1, '#9FB0EE');
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, Math.PI * 2);
   ctx.fillStyle = grad;
   ctx.fill();
-  ctx.strokeStyle = 'rgba(95,225,232,0.25)';
+  ctx.strokeStyle = 'rgba(122,92,250,0.35)';
   ctx.lineWidth = 1;
   ctx.stroke();
 }
@@ -729,7 +731,7 @@ function pathFrontOnly(points, close) {
 }
 
 function drawGraticule() {
-  ctx.strokeStyle = 'rgba(95,225,232,0.14)';
+  ctx.strokeStyle = 'rgba(122,92,250,0.16)';
   ctx.lineWidth = 1;
   for (let lon = -180; lon < 180; lon += 30) {
     const pts = [];
@@ -749,25 +751,28 @@ function drawGraticule() {
 
 // 画世界大陆轮廓（只画朝向我们的这半球，背面部分自然不画，随地球旋转露出）。
 function drawLandmasses() {
-  ctx.fillStyle = 'var(--hud-land)'; // 占位，实际下面会覆盖为具体颜色
   LAND_POLYGONS.forEach((poly) => {
     const pts = poly.map(([lon, lat]) => project(lat, lon));
     const frontCount = pts.filter((p) => p.front).length;
     if (frontCount < 3) return; // 这块陆地此刻整体在背面，不画
     ctx.beginPath();
     pathFrontOnly(pts, true);
-    ctx.fillStyle = 'rgba(90,210,160,0.32)';
+    // 和 globe.css 里的 --hud-land / --hud-land-line 对应的蓝紫色调
+    // （注：Canvas2D 的 fillStyle 不支持 var()，这里必须写字面量颜色值，
+    // 和 CSS 变量保持同步靠人工对齐，不是引用同一份数据）
+    ctx.fillStyle = 'rgba(43,108,255,0.28)';
     ctx.fill('nonzero');
-    ctx.strokeStyle = 'rgba(140,255,210,0.55)';
+    ctx.strokeStyle = 'rgba(122,92,250,0.5)';
     ctx.lineWidth = 1;
     ctx.stroke();
   });
 }
 
 function statusColor(cluster) {
-  if (cluster.ok_count === 0) return '#FF4B4B';
-  if (cluster.ok_count >= cluster.model_count) return '#5FE1E8';
-  return '#F2B84B';
+  // 和 globe.css 里的 --hud-red / --hud-green / --hud-amber 保持同一套配色
+  if (cluster.ok_count === 0) return '#E23D74';
+  if (cluster.ok_count >= cluster.model_count) return '#17B685';
+  return '#B45BD1';
 }
 
 function drawArc(from, to, color) {
@@ -834,16 +839,16 @@ function render() {
       ctx.font = "600 11px 'IBM Plex Mono', ui-monospace, monospace";
       ctx.textBaseline = 'middle';
       ctx.lineWidth = 3;
-      ctx.strokeStyle = 'rgba(2,4,6,0.85)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
       ctx.strokeText(label, p.sx + radius + 4, p.sy);
-      ctx.fillStyle = c === hoveredCluster ? '#FFFFFF' : '#C8ECEF';
+      ctx.fillStyle = c === hoveredCluster ? '#2B6CFF' : '#1B1F3B';
       ctx.fillText(label, p.sx + radius + 4, p.sy);
     }
   });
 
   if (companyProj && companyProj.front) {
     const pulse = 1 + 0.25 * Math.sin(Date.now() / 400);
-    drawMarker(companyProj, 5 * pulse, '#E8C468', true);
+    drawMarker(companyProj, 5 * pulse, '#F0A63C', true);
   }
 
   if (autoRotate && !dragging) rotY += 0.0018;

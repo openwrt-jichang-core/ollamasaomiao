@@ -1,32 +1,25 @@
-/* ===== 指挥中心 design tokens =====
-   bg      #05080B  最底层背景
-   panel   #0A1116  面板表面
-   line    #16323A  边框/分隔线
-   cyan    #5FE1E8  主色调，光点/连接线/强调
-   cyan-dim#1E4A50  弱化的青色（背面线条、次要元素）
-   text    #C8ECEF  主要文字
-   dim     #5C7B82  次要文字
-   red     #FF4B4B  离线/失败
-   amber   #F2B84B  部分在线
-   gold    #E8C468  公司锚点
+/* ===== 指挥中心 design tokens（与主控制台统一为浅色玻璃拟态） =====
+   与 style.css 用同一套蓝紫粉渐变 + 白色磨砂卡片视觉语言，
+   状态语义色（红/绿/琥珀/金）保留但为浅底做了饱和度/亮度调整。
 */
 
 :root {
-  --hud-bg: #05080B;
-  --hud-panel: #0A1116;
-  --hud-line: #16323A;
-  --hud-cyan: #5FE1E8;
-  --hud-cyan-dim: #1E4A50;
-  --hud-text: #C8ECEF;
-  --hud-dim: #5C7B82;
-  --hud-red: #FF4B4B;
-  --hud-green: #3EE08A;
-  --hud-green-dim: #1E5A3A;
-  --hud-amber: #F2B84B;
-  --hud-gold: #E8C468;
+  --hud-bg: #EFF1FA;
+  --hud-panel: rgba(255, 255, 255, 0.55);
+  --hud-line: rgba(255, 255, 255, 0.55);
+  --hud-cyan: #2B6CFF;
+  --hud-cyan-dim: rgba(43, 108, 255, 0.18);
+  --hud-text: #1B1F3B;
+  --hud-dim: #5B6180;
+  --hud-red: #E23D74;
+  --hud-green: #17B685;
+  --hud-green-dim: rgba(23, 182, 133, 0.18);
+  --hud-amber: #B45BD1;
+  --hud-gold: #F0A63C;
   --hud-font: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --hud-land: rgba(90, 210, 160, 0.32);
-  --hud-land-line: rgba(140, 255, 210, 0.55);
+  --hud-land: rgba(43, 108, 255, 0.28);
+  --hud-land-line: rgba(122, 92, 250, 0.5);
+  --glass-blur: 20px;
 }
 
 * { box-sizing: border-box; }
@@ -44,12 +37,17 @@ body {
   min-height: 100vh;
   max-width: 100vw;
   overflow-x: hidden;
+  /* 和主控制台一致的高饱和对角渐变，globe.html 不再是独立的深色 HUD 风格 */
   background:
-    radial-gradient(ellipse at 50% 0%, rgba(95,225,232,0.06), transparent 60%),
-    var(--hud-bg);
+    radial-gradient(circle at 12% 8%, rgba(255,255,255,0.5), transparent 30%),
+    radial-gradient(circle at 88% 20%, rgba(255,255,255,0.35), transparent 28%),
+    radial-gradient(circle at 20% 85%, rgba(255,90,190,0.35), transparent 40%),
+    linear-gradient(135deg, #2E7CF6 0%, #7A5CFA 45%, #C13FD6 75%, #F03E9B 100%);
+  background-attachment: fixed;
   color: var(--hud-text);
   font-family: var(--hud-font);
 }
+
 
 /* ===== 顶栏（吸顶） ===== */
 .hud-topbar {
@@ -63,7 +61,7 @@ body {
   gap: 10px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--hud-line);
-  background: rgba(5,8,11,0.92);
+  background: rgba(255,255,255,0.6);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   /* 毛玻璃面板独立提升为合成层，避免 Cesium 相机高速平移时
@@ -111,6 +109,10 @@ body {
   gap: 5px;
   white-space: nowrap;
   transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 .hud-btn:hover { border-color: var(--hud-cyan-dim); }
 .hud-btn--accent { color: var(--hud-cyan); border-color: var(--hud-cyan-dim); }
@@ -166,6 +168,10 @@ body {
   border-radius: 6px;
   background: var(--hud-panel);
   padding: 12px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 .hud-lb-card__title { margin: 0 0 8px; font-size: 12.5px; color: var(--hud-cyan); letter-spacing: 0.06em; }
 .hud-lb-card__body { max-height: 320px; overflow-y: auto; }
@@ -175,6 +181,10 @@ body {
   border-radius: 6px;
   padding: 12px;
   background: var(--hud-panel);
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 .hud-panel__title {
   margin: 0 0 8px;
@@ -260,7 +270,7 @@ body {
   border-radius: 4px;
   padding: 6px 10px;
   font-size: 11.5px;
-  color: var(--hud-text);
+  color: #EAF0FF; /* 这个浮层底色仍是深色，不能用 var(--hud-text)——那个变量现在是深色文字，配深色底会看不见 */
   white-space: normal;
   max-width: 240px;
   z-index: 5;
@@ -274,7 +284,7 @@ body {
   display: flex;
   gap: 14px;
   font-size: 10.5px;
-  color: var(--hud-dim);
+  color: #C7D0E8; /* 同上：深色底配浅色文字，不跟随全局的深色 --hud-dim */
   background: rgba(10,17,22,0.7);
   padding: 6px 10px;
   border-radius: 4px;
@@ -385,6 +395,10 @@ body {
   outline: none;
   resize: vertical;
   box-sizing: border-box;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 .hud-batch-panel__textarea:focus {
   border-color: var(--hud-cyan-dim);
@@ -431,6 +445,10 @@ body {
   border: 1px solid var(--hud-cyan-dim);
   border-radius: 8px;
   padding: 18px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 .hud-modal__close {
   float: right;

@@ -1,24 +1,19 @@
 /* ===== Design tokens =====
-   void   #0A0D10  background
-   panel  #12171D  card surface
-   line   #212930  borders / hairlines
-   ink    #DCE4EA  primary text
-   dim    #6E7A85  secondary text
-   signal #2DD4BF  teal — pass / active
-   warn   #F5A524  amber — running
-   fail   #FB5D5D  red — failure
+   全站统一玻璃拟态：高饱和蓝紫粉渐变背景 + 白色磨砂卡片
+   （截图参考的是 Michal Malewicz 那篇 Glassmorphism 文章里"故意夸张"的示例）
 */
 
 :root {
-  --void: #0A0D10;
-  --panel: #12171D;
-  --panel-raised: #161C22;
-  --line: #212930;
-  --ink: #DCE4EA;
-  --dim: #6E7A85;
-  --signal: #2DD4BF;
-  --warn: #F5A524;
-  --fail: #FB5D5D;
+  --void: #EFF1FA;
+  --panel: rgba(255, 255, 255, 0.55);
+  --panel-raised: rgba(255, 255, 255, 0.72);
+  --line: rgba(255, 255, 255, 0.55);
+  --ink: #1B1F3B;
+  --dim: #5B6180;
+  --signal: #2B6CFF;
+  --warn: #B45BD1;
+  --fail: #E23D74;
+  --glass-blur: 20px;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
 }
@@ -47,9 +42,13 @@ html, body {
 }
 
 body {
-  background-image:
-    radial-gradient(circle at 15% 0%, rgba(45, 212, 191, 0.06), transparent 45%),
-    radial-gradient(circle at 85% 15%, rgba(245, 165, 36, 0.04), transparent 40%);
+  /* 高饱和蓝→紫→粉对角渐变，叠加几个模糊光斑，对应截图里的背景质感 */
+  background:
+    radial-gradient(circle at 12% 8%, rgba(255,255,255,0.5), transparent 30%),
+    radial-gradient(circle at 88% 20%, rgba(255,255,255,0.35), transparent 28%),
+    radial-gradient(circle at 20% 85%, rgba(255,90,190,0.35), transparent 40%),
+    linear-gradient(135deg, #2E7CF6 0%, #7A5CFA 45%, #C13FD6 75%, #F03E9B 100%);
+  background-attachment: fixed;
 }
 
 .scanline-overlay {
@@ -75,6 +74,10 @@ code {
   border-radius: 3px;
   font-size: 0.85em;
   color: var(--signal);
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 /* ===== Topbar ===== */
@@ -192,8 +195,12 @@ code {
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 20px;
   padding: 20px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .panel__title {
@@ -238,6 +245,10 @@ code {
   font-size: 13px;
   outline: none;
   min-width: 0;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .host-form__input:focus {
@@ -251,6 +262,10 @@ code {
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 14px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .batch-panel__textarea {
@@ -265,6 +280,10 @@ code {
   outline: none;
   resize: vertical;
   box-sizing: border-box;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .batch-panel__textarea:focus {
@@ -319,6 +338,10 @@ code {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .btn:focus-visible {
@@ -346,6 +369,10 @@ code {
   border-radius: 8px;
   padding: 12px;
   min-height: 180px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 .trend-chart svg { width: 100%; height: 180px; display: block; }
 .trend-chart .trend-legend { display: flex; gap: 14px; font-size: 12px; margin-top: 6px; flex-wrap: wrap; }
@@ -374,6 +401,10 @@ code {
   border-radius: 6px;
   padding: 9px 10px;
   transition: opacity 0.15s ease;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .host-item--disabled {
@@ -486,6 +517,10 @@ code {
   border: 1px solid var(--line);
   position: relative;
   transition: background 0.15s ease, border-color 0.15s ease;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .host-item__toggle-thumb {
@@ -589,6 +624,10 @@ code {
   transition: all 0.15s ease;
   line-height: 1.3;
   background: var(--panel-raised);
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 .scan-toggle[data-on="true"] {
   background: rgba(45,212,191,0.12);
@@ -698,6 +737,10 @@ code {
   font-family: var(--font-mono);
   font-size: 13px;
   text-align: center;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .concurrency__number:focus {
@@ -740,6 +783,10 @@ code {
   background: var(--panel-raised);
   font-family: var(--font-mono);
   font-size: 13px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .result-card__badge {
@@ -804,11 +851,15 @@ code {
 .login-card {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 20px;
   padding: 28px 26px 24px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .login-title {
@@ -835,6 +886,10 @@ code {
   font-family: var(--font-mono);
   font-size: 14px;
   outline: none;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .login-input:focus { border-color: var(--signal); }
@@ -905,6 +960,10 @@ code {
   font-size: 12.5px;
   cursor: pointer;
   word-break: break-all;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .lb-host-item:hover { border-color: var(--dim); }
@@ -951,6 +1010,10 @@ code {
   font-size: 12px;
   cursor: pointer;
   text-align: left;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .lb-model-item:hover { border-color: var(--dim); }
@@ -1001,6 +1064,10 @@ code {
   border-radius: 8px;
   padding: 10px 14px;
   flex-wrap: wrap;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .lb-row__rank {
@@ -1059,6 +1126,10 @@ code {
   background: var(--panel-raised);
   color: var(--dim);
   cursor: pointer;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .lb-tab:hover { color: var(--ink); border-color: var(--dim); }
@@ -1103,6 +1174,10 @@ code {
   padding: 7px 10px;
   font-size: 12px;
   font-family: var(--font-mono);
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .audit-row__ts { color: var(--dim); }
@@ -1130,6 +1205,10 @@ code {
   border-radius: 8px;
   padding: 14px 16px;
   margin-bottom: 14px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .settings-block__title {
@@ -1164,6 +1243,10 @@ code {
   color: var(--ink);
   font-family: var(--font-mono);
   font-size: 13px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .settings-checkbox {
@@ -1196,6 +1279,10 @@ code {
   font-size: 12.5px;
   flex: 1 1 220px;
   min-width: 160px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 
 .settings-status {
@@ -1215,6 +1302,10 @@ code {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 8px 10px;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 .share-token-row__label { font-weight: 600; font-size: 12.5px; white-space: nowrap; }
 
@@ -1232,6 +1323,10 @@ code {
   color: var(--ink);
   padding: 8px 12px;
   cursor: pointer;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
 .theme-toggle:hover { border-color: var(--dim); }
 
@@ -1300,4 +1395,8 @@ code {
   border-radius: 6px;
   max-height: 240px;
   overflow-y: auto;
+  backdrop-filter: blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  transform: translateZ(0);
+  will-change: backdrop-filter;
 }
