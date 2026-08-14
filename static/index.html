@@ -420,6 +420,18 @@
         <button id="archiveCreateBtn" class="btn btn--danger">📦 归档并开始新一轮</button>
       </div>
       <div id="archiveList" class="share-token-list"></div>
+
+      <div class="archive-compare">
+        <h3 class="panel__subtitle">对比两份归档</h3>
+        <p class="panel__hint">选两份归档看差异：新增/消失的主机、状态变化、模型可用性变化——不用再自己一条条翻着比对。</p>
+        <div class="settings-row">
+          <select id="archiveCompareA" class="settings-input"></select>
+          <span class="archive-compare__vs">对比</span>
+          <select id="archiveCompareB" class="settings-input"></select>
+          <button id="archiveCompareBtn" class="btn">🔍 对比</button>
+        </div>
+        <div id="archiveCompareResult"></div>
+      </div>
     </section>
 
     <!-- 模型汇总 -->

@@ -650,6 +650,34 @@ function setStatusPill(kind, text) {
   statusPill.textContent = text;
 }
 
+// ---------- 实时异常 toast（不依赖任何外部通知渠道配置，控制台开着就能看到） ----------
+
+function showAlertToast(title, message) {
+  let container = document.getElementById('alertToastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'alertToastContainer';
+    container.className = 'alert-toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'alert-toast';
+  const titleEl = document.createElement('div');
+  titleEl.className = 'alert-toast__title';
+  titleEl.textContent = title;
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'alert-toast__body';
+  bodyEl.textContent = message; // textContent，不是 innerHTML：消息里可能包含主机地址等用户输入过的内容，不能当 HTML 解析
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'alert-toast__close';
+  closeBtn.textContent = '✕';
+  closeBtn.addEventListener('click', () => toast.remove());
+  toast.append(titleEl, bodyEl, closeBtn);
+  container.appendChild(toast);
+  // 15 秒后自动消失，避免开着页面几天不关、toast 堆成一整屏
+  setTimeout(() => toast.remove(), 15000);
+}
+
 // ---------- WebSocket 日志/状态流（取代原来 1.2 秒一次的轮询） ----------
 // 设计：单一长连接持续推日志；连接断开时指数退避重连；重连成功后依赖后端
 // 主动下发的 log_backfill 补齐断线期间错过的日志，不需要客户端自己算 since。
@@ -691,6 +719,8 @@ function wsConnect() {
         }
       }
       wasRunning = msg.running;
+    } else if (msg.type === 'alert') {
+      showAlertToast(msg.title || '⚠️ 异常', msg.message || '');
     }
   });
 
@@ -1624,10 +1654,92 @@ async function refreshArchives() {
       archiveList.appendChild(row);
       archiveList.appendChild(detailBox);
     });
+    renderArchiveCompareUI(archives);
   } catch (e) {
     // ignore
   }
 }
+
+// ---------- 归档对比：任选两份归档看差异 ----------
+
+const archiveCompareA = document.getElementById('archiveCompareA');
+const archiveCompareB = document.getElementById('archiveCompareB');
+const archiveCompareBtn = document.getElementById('archiveCompareBtn');
+const archiveCompareResult = document.getElementById('archiveCompareResult');
+
+function renderArchiveCompareUI(archives) {
+  if (!archives.length) {
+    archiveCompareA.innerHTML = '<option value="">（没有归档）</option>';
+    archiveCompareB.innerHTML = '<option value="">（没有归档）</option>';
+    return;
+  }
+  const options = archives
+    .map((a) => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.label)}（${escapeHtml(a.created_at.slice(0, 10))}）</option>`)
+    .join('');
+  archiveCompareA.innerHTML = options;
+  archiveCompareB.innerHTML = options;
+  // 默认选最新的两份（archives 已经是按创建时间倒序），方便最常见的"比较最近两次"场景一键就能对比
+  if (archives.length >= 2) {
+    archiveCompareA.value = archives[1].id;
+    archiveCompareB.value = archives[0].id;
+  }
+}
+
+function renderHostStatusChange(item) {
+  const labelOf = (s) => ({ ok: '正常', all_down: '模型全挂', unreachable: '不可达' }[s] || s || '（首次出现）');
+  return `<li>${escapeHtml(item.host)}：${labelOf(item.from)} → ${labelOf(item.to)}</li>`;
+}
+
+function renderViabilityChange(item) {
+  const [host, model] = item.key.split('|');
+  const arrow = item.to === true ? '恢复 ✅' : item.to === false ? '变差 ❌' : '（首次出现）';
+  return `<li>${escapeHtml(model)} @ ${escapeHtml(host)}：${arrow}</li>`;
+}
+
+archiveCompareBtn.addEventListener('click', async () => {
+  const a = archiveCompareA.value;
+  const b = archiveCompareB.value;
+  if (!a || !b) {
+    archiveCompareResult.innerHTML = '<p class="results-empty">先选两份归档。</p>';
+    return;
+  }
+  if (a === b) {
+    archiveCompareResult.innerHTML = '<p class="results-empty">选的是同一份归档，没什么好对比的。</p>';
+    return;
+  }
+  archiveCompareResult.innerHTML = '<p class="results-empty">对比中…</p>';
+  try {
+    const res = await apiFetch(`/api/archives/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      archiveCompareResult.innerHTML = `<p class="results-empty">对比失败：${escapeHtml(err.detail || res.statusText)}</p>`;
+      return;
+    }
+    const data = await res.json();
+    const d = data.diff;
+    const sections = [];
+    if (d.hosts_added.length) {
+      sections.push(`<div><b>新增主机（${d.hosts_added.length}）</b><ul>${d.hosts_added.map((h) => `<li>${escapeHtml(h)}</li>`).join('')}</ul></div>`);
+    }
+    if (d.hosts_removed.length) {
+      sections.push(`<div><b>消失的主机（${d.hosts_removed.length}）</b><ul>${d.hosts_removed.map((h) => `<li>${escapeHtml(h)}</li>`).join('')}</ul></div>`);
+    }
+    if (d.hosts_status_changed.length) {
+      sections.push(`<div><b>主机状态变化（${d.hosts_status_changed.length}）</b><ul>${d.hosts_status_changed.map(renderHostStatusChange).join('')}</ul></div>`);
+    }
+    if (d.viability_changed.length) {
+      sections.push(`<div><b>模型可用性变化（${d.viability_changed.length}）</b><ul>${d.viability_changed.map(renderViabilityChange).join('')}</ul></div>`);
+    }
+    if (d.models_added.length) {
+      sections.push(`<div><b>新出现的模型（${d.models_added.length}）</b><ul>${d.models_added.map((k) => `<li>${escapeHtml(k.replace('|', ' @ '))}</li>`).join('')}</ul></div>`);
+    }
+    archiveCompareResult.innerHTML = sections.length
+      ? `<div class="archive-compare__result">${sections.join('')}</div>`
+      : '<p class="results-empty">这两份归档之间没有差异。</p>';
+  } catch (e) {
+    archiveCompareResult.innerHTML = '<p class="results-empty">对比失败，请重试。</p>';
+  }
+});
 
 document.getElementById('archiveCreateBtn').addEventListener('click', async () => {
   if (!confirm('确定要归档当前记录吗？归档后当前的主机地址/排行榜/扫描结果会被清空(数据保留在归档里，可以随时查看，不会丢失)。')) return;
