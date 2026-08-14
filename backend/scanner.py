@@ -1255,7 +1255,7 @@ def process_host(host, state: ScanState, model_concurrency=4):
                 ok, verr, elapsed = False, str(e), None
             viable[model] = ok
             timing[model] = elapsed
-            state.log(f"{tag} {model}: {'可用' if ok else '不可用 - ' + str(verr)[:80]}")
+            state.log(f"{tag} {model}: {'可用' if ok else '不能用 - ' + str(verr)[:80]}")
     host_result["viability"] = viable
     host_result["viability_timing"] = timing
 

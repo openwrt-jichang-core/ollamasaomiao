@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from auth import AuthManager
 from ws_manager import capture_running_loop, manager as ws_manager, push_from_thread
+import telegram_bot
 from scanner import (
     ScanState,
     quick_test,
@@ -214,6 +215,14 @@ async def _capture_loop_on_startup():
     # 扫描跑在普通 threading 线程里，要往 WS 广播必须先记住这个主事件循环，
     # 否则 asyncio.run_coroutine_threadsafe 无处可投递。
     capture_running_loop()
+    telegram_bot.configure(
+        load_settings=_load_settings,
+        add_host=_add_host_internal,
+        load_hosts=load_hosts,
+        get_scan_state=lambda: state,
+        launch_scan=_launch_scan_and_watch,
+        record_audit=_record_audit_raw,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +271,36 @@ async def ws_logs(ws: WebSocket):
         logging.getLogger("ws_manager").exception("ws_logs 连接异常")
     finally:
         await ws_manager.disconnect(ws)
+
+
+# ---------------------------------------------------------------------------
+# Telegram Bot webhook：接收 Telegram 服务器推过来的消息/按钮点击。
+# 路径本身带一个从 bot_token 派生的随机片段（不是 bot_token 明文），
+# 再加 Telegram 官方支持的 secret_token 请求头做二次校验——两层都过了，
+# 还要 handle_update() 里第三层校验 chat_id 跟设置里配置的一致，
+# 三层里任何一层没对上都直接忽略，不给攻击者任何"你猜对了一部分"的反馈。
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/telegram/webhook/{secret}")
+async def telegram_webhook(secret: str, request: Request):
+    settings = _load_settings()
+    tg_cfg = settings.get("notify", {}).get("telegram", {})
+    bot_token = tg_cfg.get("bot_token", "")
+    if not tg_cfg.get("enabled") or not bot_token:
+        raise HTTPException(status_code=404)
+    if secret != telegram_bot.webhook_path(bot_token).rsplit("/", 1)[-1]:
+        raise HTTPException(status_code=404)  # 404 而不是 403：不暴露"路径对了只是校验没过"这个信息
+    expected_header = telegram_bot._webhook_secret(bot_token)
+    if request.headers.get("x-telegram-bot-api-secret-token") != expected_header:
+        raise HTTPException(status_code=404)
+
+    update = await request.json()
+    try:
+        telegram_bot.handle_update(update, bot_token, tg_cfg.get("chat_id", ""))
+    except Exception:
+        logging.getLogger("telegram_bot").exception("处理 Telegram update 失败")
+    return {"ok": True}  # Telegram 只关心 2xx，具体处理结果不需要回给它
 
 
 class LoginIn(BaseModel):
@@ -537,38 +576,39 @@ def bulk_toggle_hosts(body: HostBulkToggleIn, request: Request, auth=Depends(req
     return {"changed": changed, "hosts": _enrich_host_status(result)}
 
 
-@app.post("/api/hosts")
-def add_host(host: HostIn, request: Request, auth=Depends(require_auth)):
-    url = normalize_url(host.url)
-    if not host.force:
+def _add_host_internal(url: str, group: str = "", tags: list | None = None, force: bool = False):
+    """新增主机的核心逻辑，被 HTTP /api/hosts 和 Telegram Bot 共用，避免两条添加路径校验规则不一致。
+    返回 (ok, code, message)：code 为 None 表示成功；非 None 时是机器可读的错误分类，
+    调用方（HTTP 路由 / TG 命令）各自决定怎么把这个错误呈现给用户。"""
+    url = normalize_url(url)
+    if not force:
         archived_at = _find_url_in_archives(url)
         if archived_at:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "code": "already_archived",
-                    "message": f"该地址在归档「{archived_at['label']}」({archived_at['created_at'][:10]}) 里出现过，"
-                                f"确认要重新添加的话可以强制添加",
-                },
+            return False, "already_archived", (
+                f"该地址在归档「{archived_at['label']}」({archived_at['created_at'][:10]}) 里出现过，"
+                f"确认要重新添加的话可以强制添加"
             )
         ok, err = _probe_host_reachable(url)
         if not ok:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "code": "unreachable",
-                    "message": f"无法连接到该地址（{err}），确认地址无误的话可以强制添加",
-                },
-            )
+            return False, "unreachable", f"无法连接到该地址（{err}），确认地址无误的话可以强制添加"
     with _hosts_lock:
         hosts = load_hosts()
         if find_host(hosts, url):
-            raise HTTPException(status_code=400, detail="该地址已存在")
-        hosts.append({"url": url, "enabled": True, "favorite": False, "tags": host.tags or [], "group": (host.group or "").strip()[:50]})
+            return False, "duplicate", "该地址已存在"
+        hosts.append({"url": url, "enabled": True, "favorite": False, "tags": tags or [], "group": (group or "").strip()[:50]})
         save_hosts(hosts)
-        result = load_hosts()
-    _record_audit(request, "add_host", url)
-    return _enrich_host_status(result)
+    return True, None, url
+
+
+@app.post("/api/hosts")
+def add_host(host: HostIn, request: Request, auth=Depends(require_auth)):
+    ok, code, message = _add_host_internal(host.url, host.group, host.tags, host.force)
+    if not ok:
+        status = 422 if code in ("already_archived", "unreachable") else 400
+        raise HTTPException(status_code=status, detail={"code": code, "message": message})
+    result = _enrich_host_status(load_hosts())
+    _record_audit(request, "add_host", normalize_url(host.url))
+    return result
 
 
 @app.patch("/api/hosts")
@@ -672,6 +712,68 @@ async def _load_json_file_async(path: Path, default):
 async def list_archives(auth=Depends(require_auth)):
     archives = await _load_json_file_async(ARCHIVES_FILE, [])
     return [_archive_summary(a) for a in sorted(archives, key=lambda a: a["created_at"], reverse=True)]
+
+
+def _diff_archive_results(a_results: dict, b_results: dict) -> dict:
+    """两份归档快照的 results 字段（discovered/viability/host_status 结构跟 scan_results.json 一致）
+    做逐项 diff。跟 _detect_regressions 的区别：那个只关心"变差"，这个是双向全量对比，
+    新增的主机/模型、变好的、变差的都要列出来——用户手动选两份归档对比时，想看到的是全貌，
+    不是只看坏消息。"""
+    a_hosts = set((a_results or {}).get("host_status", {}).keys())
+    b_hosts = set((b_results or {}).get("host_status", {}).keys())
+    a_status = (a_results or {}).get("host_status", {}) or {}
+    b_status = (b_results or {}).get("host_status", {}) or {}
+    a_viability = (a_results or {}).get("viability", {}) or {}
+    b_viability = (b_results or {}).get("viability", {}) or {}
+
+    hosts_added = sorted(b_hosts - a_hosts)
+    hosts_removed = sorted(a_hosts - b_hosts)
+    hosts_status_changed = sorted(
+        h for h in (a_hosts & b_hosts) if a_status.get(h) != b_status.get(h)
+    )
+
+    all_model_keys = set(a_viability.keys()) | set(b_viability.keys())
+    models_added = sorted(k for k in all_model_keys if k not in a_viability and k in b_viability)
+    models_removed = sorted(k for k in all_model_keys if k in a_viability and k not in b_viability)
+    viability_changed = sorted(
+        k for k in (set(a_viability.keys()) & set(b_viability.keys()))
+        if a_viability.get(k) != b_viability.get(k)
+    )
+
+    return {
+        "hosts_added": hosts_added,
+        "hosts_removed": hosts_removed,
+        "hosts_status_changed": [
+            {"host": h, "from": a_status.get(h), "to": b_status.get(h)} for h in hosts_status_changed
+        ],
+        "models_added": models_added,
+        "models_removed": models_removed,
+        "viability_changed": [
+            {"key": k, "from": a_viability.get(k), "to": b_viability.get(k)} for k in viability_changed
+        ],
+    }
+
+
+@app.get("/api/archives/compare")
+async def compare_archives(a: str, b: str, auth=Depends(require_auth)):
+    """任选两份归档做全量对比，页面上的"对比"入口用这个。
+    这个路由必须注册在 /api/archives/{archive_id} 之前——FastAPI/Starlette
+    按注册顺序匹配路由，如果放在后面，"/api/archives/compare" 会先被
+    {archive_id} 那条路由捕获（把 "compare" 当成 archive_id），
+    正则校验一比对发现不是合法 ID，直接 400，走不到这里。"""
+    if not (ARCHIVE_ID_RE.match(a) and ARCHIVE_ID_RE.match(b)):
+        raise HTTPException(status_code=400, detail="非法的归档 ID")
+    archives = await _load_json_file_async(ARCHIVES_FILE, [])
+    by_id = {arc["id"]: arc for arc in archives}
+    if a not in by_id or b not in by_id:
+        raise HTTPException(status_code=404, detail="有一份或两份归档不存在")
+    arc_a, arc_b = by_id[a], by_id[b]
+    diff = _diff_archive_results(arc_a.get("results", {}), arc_b.get("results", {}))
+    return {
+        "a": _archive_summary(arc_a),
+        "b": _archive_summary(arc_b),
+        "diff": diff,
+    }
 
 
 @app.get("/api/archives/{archive_id}")
@@ -1308,9 +1410,15 @@ def _purge_host_from_ping_status(url):
 def _record_audit(request: Request, action: str, detail: str = ""):
     """记录一条操作审计日志：谁（来源IP）在什么时候做了什么。
     单管理员场景下没有用户名概念，用来源 IP 作为操作者标识。"""
+    _record_audit_raw(get_client_ip(request), action, detail)
+
+
+def _record_audit_raw(source: str, action: str, detail: str = ""):
+    """跟 _record_audit 记同一份日志，但不需要一个真实的 HTTP Request 对象——
+    给 Telegram Bot、定时任务这类不是由某次页面请求直接触发的操作用。"""
     entry = {
         "ts": datetime.now().isoformat(timespec="seconds"),
-        "ip": get_client_ip(request),
+        "ip": source,
         "action": action,
         "detail": detail,
     }
@@ -1504,6 +1612,9 @@ class NotifyTelegramIn(BaseModel):
     enabled: bool = False
     bot_token: str = ""
     chat_id: str = ""
+    # 注册 Telegram webhook 需要一个 Telegram 服务器能访问到的公网地址（Coolify 部署的域名）。
+    # 不填的话 Bot 仍然能推送通知，只是不会有左侧菜单栏和交互命令（那部分需要接收 Telegram 的回调）。
+    public_base_url: str = ""
 
 
 class NotifyBarkIn(BaseModel):
@@ -1574,7 +1685,17 @@ def put_settings(body: SettingsIn, request: Request, auth=Depends(require_auth))
     settings["address_discovery"] = existing.get("address_discovery", DEFAULT_SETTINGS["address_discovery"])
     _save_settings(settings)
     _record_audit(request, "update_settings", "已更新定时扫描/通知/历史数据设置")
-    return settings
+
+    tg_cfg = settings.get("notify", {}).get("telegram", {})
+    tg_sync_result = None
+    if tg_cfg.get("enabled") and tg_cfg.get("bot_token"):
+        try:
+            tg_sync_result = telegram_bot.sync_webhook_and_commands(tg_cfg)
+        except Exception as e:
+            # Telegram API 一时不可达不该让"保存设置"这个操作本身失败——
+            # 设置已经存盘了，只是菜单/webhook 没注册成功，记一笔审计方便排查。
+            _record_audit_raw("system", "telegram_sync_failed", str(e)[:200])
+    return {**settings, "_telegram_sync": tg_sync_result}
 
 
 @app.post("/api/notify/test")
@@ -1721,13 +1842,25 @@ def _send_notifications(title, message):
 
 
 def _detect_regressions(prev_results, new_results):
-    """对比本次和上一次扫描结果，找出「之前正常、这次变差」的主机/模型。返回通知正文，没有异常则返回 None。"""
+    """对比本次和上一次扫描结果，找出「之前正常、这次变差」的主机/模型。返回通知正文，没有异常则返回 None。
+
+    之前这里用 discovered.keys()（只收录"探测到至少一个模型"的主机）做前后集合差来判断
+    "主机是否消失"，这是错的：
+      - 用户主动从主机列表删除一台主机 → discovered 集合跟着变化 → 被误判成"新增不可达"
+      - 主机这次能连上、但恰好没有任何模型 → 同样不在 discovered 里 → 也被误判
+    scanner.py 其实已经算好了更准确的 host_status（unreachable / all_down / ok），
+    直接基于当前配置里的主机集合逐个打的标，天然不会把"已删除的主机"算进来。
+    这里改成用 host_status 做前后对比，只有「上次可达、这次变成 unreachable」才算真异常。
+    """
+    prev_status = (prev_results or {}).get("host_status", {}) or {}
+    new_status = (new_results or {}).get("host_status", {}) or {}
     prev_viability = (prev_results or {}).get("viability", {}) or {}
     new_viability = (new_results or {}).get("viability", {}) or {}
-    prev_hosts = set((prev_results or {}).get("discovered", {}).keys())
-    new_hosts = set((new_results or {}).get("discovered", {}).keys())
 
-    newly_unreachable_hosts = sorted(prev_hosts - new_hosts)
+    newly_unreachable_hosts = sorted(
+        h for h, status in new_status.items()
+        if status == "unreachable" and prev_status.get(h) not in (None, "unreachable")
+    )
     newly_failed_models = sorted(
         key for key, ok in prev_viability.items()
         if ok and new_viability.get(key) is False
@@ -1767,6 +1900,9 @@ def _launch_scan_and_watch(hosts, concurrency, model_concurrency, enable_core=Tr
         msg = _detect_regressions(prev_results, new_results)
         if msg:
             _send_notifications("⚠️ Ollama 集群扫描发现新异常", msg)
+            # 外部通知渠道（企业微信/TG/邮件等）都是"配了才有"，很多人图省事根本不配。
+            # WS 广播是免配置的兜底：只要控制台开着，异常一定会弹出来，不依赖任何第三方渠道。
+            push_from_thread({"type": "alert", "title": "⚠️ 扫描发现新异常", "message": msg})
 
     threading.Thread(target=_watch, daemon=True).start()
     return True
