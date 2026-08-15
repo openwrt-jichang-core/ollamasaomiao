@@ -1030,21 +1030,33 @@ def discover_models(host):
 
 
 def quick_test(host, model):
-    """返回 (ok, err, elapsed_seconds)。elapsed 是本次(最后一次尝试)请求耗时，用于"快速测试"排行榜排序。"""
+    """返回 (ok, err, elapsed_seconds)。elapsed 是本次(最后一次尝试)请求耗时，用于"快速测试"排行榜排序。
+
+    用 /api/chat 发一句"hi"而不是 /api/generate 发"say ok"——两个接口对某些模型
+    （尤其是要求走 chat template 的指令微调模型）行为不完全一致，用户实际用起来
+    走的基本都是 /api/chat，用这个接口测才能反映真实可用性。另外不再只看
+    HTTP 层有没有报错：请求成功但模型回了空字符串（有些模型在负载高/参数不对时
+    会这样）不该算"可用"，那种情况用户问它东西一样得不到回复。
+    """
     last_err = None
     elapsed = None
     for attempt in range(TRANSIENT_RETRY_COUNT + 1):
         start = time.time()
         try:
             resp = requests.post(
-                f"{host}/api/generate",
-                json={"model": model, "prompt": "say ok", "stream": False},
+                f"{host}/api/chat",
+                json={"model": model, "messages": [{"role": "user", "content": "hi"}], "stream": False},
                 timeout=QUICK_TEST_TIMEOUT,
             )
             elapsed = round(time.time() - start, 2)
             data = resp.json()
+            if not isinstance(data, dict):
+                return False, "响应格式异常(非JSON对象)", elapsed
             if "error" in data:
                 return False, data["error"], elapsed  # 应用层错误(比如模型不存在)不是网络抖动，不重试
+            content = (data.get("message") or {}).get("content", "")
+            if not content or not content.strip():
+                return False, "模型返回了空回复", elapsed
             return True, None, elapsed
         except Exception as e:
             last_err = e

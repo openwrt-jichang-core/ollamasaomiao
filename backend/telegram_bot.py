@@ -359,14 +359,28 @@ def _handle_callback_query(cq: dict, bot_token: str):
 
 def handle_update(update: dict, bot_token: str, allowed_chat_id: str):
     """处理一条 Telegram Update。只信任配置里指定的 chat_id，其它一律无视——
-    Telegram webhook URL 一旦泄露，没有这层过滤的话任何人都能远程操作你的扫描台。"""
+    Telegram webhook URL 一旦泄露，没有这层过滤的话任何人都能远程操作你的扫描台。
+
+    唯一的例外：allowed_chat_id 还没配置过（空字符串）。这时候不可能有"合法 chat_id"
+    可比对，用户第一次跟 Bot 说话，我们回一句"你的 chat_id 是 xxx，填到设置里"——
+    这是新手配置时最常卡住的一步（Telegram 本身不会告诉你自己的 chat_id 是多少，
+    得跟 Bot 说句话才能拿到）。一旦 allowed_chat_id 填了、不为空了，
+    这条"自我介绍"分支就不再触发，其它 chat_id 一律回到原来的静默无视。
+    """
     message = update.get("message")
     callback_query = update.get("callback_query")
 
     if message is not None:
         chat_id = message.get("chat", {}).get("id")
-        if str(chat_id) != str(allowed_chat_id):
+        if not allowed_chat_id:
+            send_message(bot_token, chat_id,
+                f"👋 你好，我是 Ollama 扫描台的 Bot。\n\n"
+                f"你的 chat_id 是：`{chat_id}`\n\n"
+                f"把这个填到网页设置里「Telegram chat_id」那一栏并保存，"
+                f"保存之后我才会响应你发的命令——这是为了防止别人也能远程操作你的扫描台。")
             return
+        if str(chat_id) != str(allowed_chat_id):
+            return  # 已经配置了合法 chat_id，其它任何人发什么都不回应，不给出"你猜错了"这种信息
         text = message.get("text", "")
         if text.startswith("/"):
             _handle_command(chat_id, text, bot_token)
@@ -376,7 +390,7 @@ def handle_update(update: dict, bot_token: str, allowed_chat_id: str):
 
     if callback_query is not None:
         chat_id = callback_query.get("message", {}).get("chat", {}).get("id")
-        if str(chat_id) != str(allowed_chat_id):
+        if not allowed_chat_id or str(chat_id) != str(allowed_chat_id):
             return
         _handle_callback_query(callback_query, bot_token)
         return
