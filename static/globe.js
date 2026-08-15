@@ -456,7 +456,13 @@ function wireRowActions(container) {
         });
         const data = await res.json();
         if (resultEl) resultEl.textContent = formatTestResult(mode, data);
-        if (mode !== 'quick' && mode !== 'headless') refreshAllLeaderboards();
+        // 这里不能立刻刷新排行榜：refreshAllLeaderboards() 会整体重建卡片的
+        // innerHTML，刚设置的这行结果文字（连同它所在的 DOM 节点）会被一起冲掉，
+        // 用户就只能看到结果"一闪而过"。留几秒钟让人看清楚这次测试结果，
+        // 再去刷新排名——排行榜数据本身不会因为这几秒延迟而失真，只是晚一点点更新。
+        if (mode !== 'quick' && mode !== 'headless') {
+          setTimeout(refreshAllLeaderboards, 2500);
+        }
       } catch (e) {
         if (resultEl) resultEl.textContent = '请求失败';
       }
@@ -477,11 +483,20 @@ function renderDeepCard(lbData) {
   const rows = [];
   const seen = new Set();
   Object.entries(lbData || {}).forEach(([cat, catData]) => {
-    (catData.ranked || []).concat(catData.failed || []).forEach((r) => {
+    // ranked 里的是通过的、failed 里的是没通过的——渲染时要标记出处，
+    // 不然没法像其他几个排行榜卡片一样标绿/标红（这行之前漏掉了，
+    // 深度测试榜看起来跟其它榜不一样，全是灰扑扑的一个色）。
+    (catData.ranked || []).forEach((r) => {
       const key = `${r.host}|${r.model}`;
       if (seen.has(key)) return;
       seen.add(key);
-      rows.push(r);
+      rows.push({ ...r, _passed: true });
+    });
+    (catData.failed || []).forEach((r) => {
+      const key = `${r.host}|${r.model}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push({ ...r, _passed: false });
     });
   });
   if (!rows.length) {
@@ -490,7 +505,7 @@ function renderDeepCard(lbData) {
   }
   box.innerHTML = rows.map((r) => `
     <div class="hud-list-item">
-      <div>${escapeHtml(r.model)}</div>
+      <div>${r._passed ? '🟢' : '🔴'} ${escapeHtml(r.model)}</div>
       <div class="hud-list-item__sub">@ ${escapeHtml(r.host)}${r.family_hint ? ' · ' + escapeHtml(r.family_hint) : ''}</div>
       ${buildRowActionsHtml(r.host, r.model)}
     </div>
