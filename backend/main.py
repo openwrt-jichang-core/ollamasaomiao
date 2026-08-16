@@ -70,7 +70,7 @@ DEFAULT_SETTINGS = {
     },
     "notify": {
         "wecom": {"enabled": False, "webhook_url": ""},
-        "telegram": {"enabled": False, "bot_token": "", "chat_id": ""},
+        "telegram": {"enabled": False, "bot_token": "", "chat_id": "", "public_base_url": ""},
         "bark": {"enabled": False, "key": "", "server": "https://api.day.app"},
         "email": {
             "enabled": False, "smtp_host": "", "smtp_port": 587,
@@ -1105,10 +1105,21 @@ def _auto_add_discovered_host(url: str, group: str, tags: list):
         hosts.append({"url": norm, "enabled": True, "favorite": False, "tags": tags or [], "group": (group or "").strip()[:50]})
         save_hosts(hosts)
     return True
+
+
+def _geoip_cache_get(ip: str):
     """只读缓存，不发网络请求。返回 (is_fresh, result)：
     is_fresh=True 且 result 有值 → 直接能用；
     is_fresh=True 且 result=None → 之前查过失败，还在负缓存有效期内，不用再查；
-    is_fresh=False → 缓存里没有或者已经过期，需要重新发起网络请求。"""
+    is_fresh=False → 缓存里没有或者已经过期，需要重新发起网络请求。
+
+    这个函数体之前被误粘到了 _auto_add_discovered_host() 的 return 语句之后，
+    没有自己的 def 声明——那段代码变成了永远执行不到的死代码，_geoip_cache_get
+    这个名字实际上从未被定义过。所有依赖它的地方（_build_globe_points）
+    每次调用都会直接 NameError，又被 /api/globe/points 那层"优雅降级"的
+    try/except 悄悄吞掉、伪装成"没有数据"返回空结果——地球页面"总览"全是 0、
+    内网主机列表也是空的，表现得像正常的空状态，但其实是异常被藏起来了。
+    这个函数从来没有真正跑起来过。"""
     with _geoip_lock:
         cache = _load_geoip_cache()
         cached = cache.get(ip)
@@ -1574,16 +1585,26 @@ def export_audit_log(auth=Depends(require_auth)):
 
 
 def _deep_merge_defaults(defaults, loaded):
-    """把已保存的设置和默认结构做深度合并，保证以后新增字段时旧的 settings.json 不会缺键报错。"""
+    """把已保存的设置和默认结构做深度合并，保证以后新增字段时旧的 settings.json 不会缺键报错。
+
+    以 loaded（已保存的数据）为主体，只用 defaults 补全 loaded 里没有的键——
+    而不是反过来"只保留 defaults 里已经列出的键"。原来的实现是后一种（以 defaults
+    的键集合为基准遍历），这意味着任何时候给某个 NotifyXxxIn 之类的 Pydantic 模型
+    加了新字段、却忘了同步在 DEFAULT_SETTINGS 里补上同名默认值，这个新字段就会在
+    每次"读取合并"时被悄悄丢弃——而 /api/settings/address-discovery 这类接口内部
+    会重新读取整个 settings.json 再套这个合并函数、整体写回，相当于把刚保存的新
+    字段冲掉。这类 bug 具有隐蔽性：接口本身返回 200、响应体看着也对，只有磁盘上的
+    最终结果是错的。改成以 loaded 为主体后，即使某个字段漏加进 DEFAULT_SETTINGS，
+    只要它已经被写进磁盘，就不会再被这个函数吃掉。"""
     if not isinstance(loaded, dict):
         return json.loads(json.dumps(defaults))
-    merged = {}
+    merged = dict(loaded)
     for k, dv in defaults.items():
         lv = loaded.get(k, None)
         if isinstance(dv, dict):
             merged[k] = _deep_merge_defaults(dv, lv if isinstance(lv, dict) else {})
-        else:
-            merged[k] = lv if lv is not None else dv
+        elif k not in loaded or lv is None:
+            merged[k] = dv
     return merged
 
 
