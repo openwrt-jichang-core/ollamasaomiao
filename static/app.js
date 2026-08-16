@@ -1026,6 +1026,7 @@ async function loadSettingsIntoForm() {
     document.getElementById('notifyTelegramEnabled').checked = !!s.notify.telegram.enabled;
     document.getElementById('notifyTelegramToken').value = s.notify.telegram.bot_token || '';
     document.getElementById('notifyTelegramChatId').value = s.notify.telegram.chat_id || '';
+    document.getElementById('notifyTelegramPublicBaseUrl').value = s.notify.telegram.public_base_url || '';
 
     document.getElementById('notifyBarkEnabled').checked = !!s.notify.bark.enabled;
     document.getElementById('notifyBarkKey').value = s.notify.bark.key || '';
@@ -1080,6 +1081,7 @@ function buildSettingsPayload() {
         enabled: document.getElementById('notifyTelegramEnabled').checked,
         bot_token: document.getElementById('notifyTelegramToken').value.trim(),
         chat_id: document.getElementById('notifyTelegramChatId').value.trim(),
+        public_base_url: document.getElementById('notifyTelegramPublicBaseUrl').value.trim(),
       },
       bark: {
         enabled: document.getElementById('notifyBarkEnabled').checked,
@@ -1118,6 +1120,7 @@ settingsSaveBtn.addEventListener('click', async () => {
       settingsStatus.textContent = `保存失败：${err.detail || res.status}`;
       return;
     }
+    const savedSettings = await res.json();
     const adRes = await apiFetch('/api/settings/address-discovery', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1129,8 +1132,22 @@ settingsSaveBtn.addEventListener('click', async () => {
       return;
     }
     renderAddressDiscoveryStatus(await adRes.json());
-    settingsStatus.textContent = '已保存 ✓';
-    setTimeout(() => { settingsStatus.textContent = ''; }, 3000);
+    // Telegram 配了 bot_token 才会尝试注册命令菜单/webhook，结果通过 _telegram_sync 带回来——
+    // 不把这个结果亮出来的话，用户填完 public_base_url 保存后完全不知道是不是真的注册成功了，
+    // 只能等到发消息测试时才发现"根本没反应"，再回头猜是哪一步配错了。
+    const tgSync = savedSettings._telegram_sync;
+    let statusText = '已保存 ✓';
+    if (tgSync) {
+      if (tgSync.webhook) {
+        statusText += '（Telegram 菜单+交互命令已注册成功）';
+      } else if (tgSync.commands) {
+        statusText += '（Telegram 命令菜单已注册，但没填公网地址，交互命令不会生效）';
+      }
+    } else if (document.getElementById('notifyTelegramEnabled').checked && document.getElementById('notifyTelegramToken').value.trim()) {
+      statusText += '（Telegram 同步失败，可能是 Bot Token 不对或服务器连不上 Telegram，看服务端日志）';
+    }
+    settingsStatus.textContent = statusText;
+    setTimeout(() => { settingsStatus.textContent = ''; }, 5000);
   } catch (e) {
     settingsStatus.textContent = '保存失败，请检查网络';
   }

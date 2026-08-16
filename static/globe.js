@@ -15,6 +15,34 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// ---------- 异常 toast（跟 app.js 里那份是同一套 CSS class，样式定义在 style.css，
+// globe.html 单独引入了 style.css，但这个页面没加载 app.js，所以函数得单独在这份文件里再放一份） ----------
+
+function showAlertToast(title, message) {
+  let container = document.getElementById('alertToastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'alertToastContainer';
+    container.className = 'alert-toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'alert-toast';
+  const titleEl = document.createElement('div');
+  titleEl.className = 'alert-toast__title';
+  titleEl.textContent = title;
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'alert-toast__body';
+  bodyEl.textContent = message;
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'alert-toast__close';
+  closeBtn.textContent = '✕';
+  closeBtn.addEventListener('click', () => toast.remove());
+  toast.append(titleEl, bodyEl, closeBtn);
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 15000);
+}
+
 // ---------- 时钟 ----------
 
 const hudClock = document.getElementById('hudClock');
@@ -953,6 +981,13 @@ async function loadGlobeData() {
       if (Array.isArray(data.points) && Array.isArray(data.unlocated)) {
         globeData = data;
         pointsOk = true;
+        if (data.error) {
+          // 后端在构建地球数据时出了异常，为了不让整个接口 500 而降级返回了空结构，
+          // 但这跟"确实没有主机数据"长得一模一样——总览显示全 0，容易被当成正常空状态。
+          // 这里把藏在返回体里的 error 显式亮出来，不然这种后端 bug 会一直隐身。
+          console.error('/api/globe/points 内部出错（已降级为空结果）：', data.error);
+          showAlertToast('⚠️ 地球数据加载异常', `后端处理失败：${data.error}`);
+        }
       } else {
         console.error('/api/globe/points 返回的数据格式不对', data);
       }

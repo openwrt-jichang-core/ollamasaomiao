@@ -276,7 +276,9 @@
         <div class="settings-channel">
           <label class="settings-checkbox"><input type="checkbox" id="notifyTelegramEnabled" /> Telegram Bot</label>
           <input type="text" id="notifyTelegramToken" class="settings-input" placeholder="Bot Token（找 @BotFather 获取）" />
-          <input type="text" id="notifyTelegramChatId" class="settings-input" placeholder="Chat ID" />
+          <input type="text" id="notifyTelegramChatId" class="settings-input" placeholder="Chat ID（不知道的话留空保存，随便跟 Bot 说句话，它会把 chat_id 告诉你）" />
+          <input type="text" id="notifyTelegramPublicBaseUrl" class="settings-input" placeholder="公网可访问地址（比如 https://scanner.example.com）——不填的话左侧菜单栏和命令交互都不会生效，只能收推送通知" />
+          <p class="panel__hint" style="margin:2px 0 0;">这一栏填的是 Telegram 服务器要能连回来的地址：不填，Bot 就只能单向推送通知；填了，才会注册左侧命令菜单和 /scan /addhost 这些交互命令。</p>
         </div>
 
         <div class="settings-channel">
